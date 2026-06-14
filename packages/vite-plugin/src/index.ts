@@ -5,14 +5,9 @@ import type { Plugin, ViteDevServer } from 'vite';
 import type { ServerBuildPluginOptions } from './types';
 import { Registry } from './core/registry';
 import { processFile } from './core/processor';
-import {
-  handleGeneratedBackendRequest,
-  loadServerApp,
-  nodeRequestToWeb,
-  requestUrl,
-  writeWebResponse
-} from './dev-server/middleware';
+import { requestUrl } from './dev-server/middleware';
 import { invalidateBackendModules } from './dev-server/hmr';
+import { BunDevServer } from './dev-server/bun-dev-server';
 import { loadVirtualModule, resolveVirtualId } from './dev-server/virtual-modules';
 import { generateBundleContent } from './build/bundle-generator';
 import { bundleServer } from './build/bundler';
@@ -115,6 +110,14 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
         console.log(`[server-build] Dev server ready with ${registry.size} endpoints.`);
       }
 
+      const cacheDir = resolve(root, 'node_modules', '.cache', 'server-build');
+      const bunDevServer = new BunDevServer(port, serverEntryPath, cacheDir);
+
+      if (registry.size > 0 || serverEntryPath) {
+        bunDevServer.start(registry);
+        server.httpServer?.on('close', () => bunDevServer.stop());
+      }
+
       server.watcher.on('change', (file) => {
         if (/\.(tsx?)$/.test(file) && !file.endsWith('.d.ts')) {
           const previousEndpoints = registry.getEndpointsForFile(file);
@@ -129,6 +132,7 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
             registry.unregisterFile(file);
             invalidateBackendModules(server, previousEndpoints);
           }
+          bunDevServer.restart(registry);
         }
       });
 
@@ -136,29 +140,30 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
         const previousEndpoints = registry.getEndpointsForFile(file);
         registry.unregisterFile(file);
         invalidateBackendModules(server, previousEndpoints);
+        bunDevServer.restart(registry);
       });
 
       server.middlewares.use(async (req, res, next) => {
         const pathname = requestUrl(req).pathname;
         if (!pathname.startsWith(API_PREFIX)) return next();
-
-        const endpoint = decodeURIComponent(pathname.slice(API_PREFIX.length));
-        await handleGeneratedBackendRequest(server, req, res, endpoint, registry);
-      });
-
-      server.middlewares.use(async (req, res, next) => {
         try {
-          const app = await loadServerApp(server, serverEntry, serverEntryPath);
-          if (!app) return next();
-
-          const response = await app.fetch(await nodeRequestToWeb(req));
-          if (response.status === 404) return next();
-
-          await writeWebResponse(res, response);
+          await bunDevServer.proxy(req, res);
         } catch (e) {
-          next(e);
+          const msg = e instanceof Error ? e.message : String(e);
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Backend unavailable: ' + msg }));
         }
       });
+
+      if (serverEntry) {
+        server.middlewares.use(async (req, res, next) => {
+          try {
+            await bunDevServer.proxyOrNext(req, res, next);
+          } catch {
+            next();
+          }
+        });
+      }
     },
 
     transform(code, id) {
