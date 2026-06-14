@@ -36,6 +36,7 @@
   ],
   "scripts": {
     "build": "tsdown && cp src/backend.d.ts dist/backend.d.ts",
+    "build:watch": "tsdown --watch",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "release": "bumpp",
