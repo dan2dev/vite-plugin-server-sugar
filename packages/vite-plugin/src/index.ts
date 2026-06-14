@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Plugin, ViteDevServer } from 'vite';
 
 import type { ServerBuildPluginOptions } from './types';
@@ -10,7 +10,7 @@ import { invalidateBackendModules } from './dev-server/hmr';
 import { BunDevServer } from './dev-server/bun-dev-server';
 import { loadVirtualModule, resolveVirtualId } from './dev-server/virtual-modules';
 import { generateBundleContent } from './build/bundle-generator';
-import { bundleServer } from './build/bundler';
+import { compileServer } from './build/bundler';
 import { API_PREFIX, RESOLVED_CLIENT_HELPER_ID, RESOLVED_PREFIX } from './constants';
 import { normalizePath } from './utils/path';
 
@@ -192,16 +192,13 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
       );
       if (!content) return;
 
-      let code: string;
       try {
-        code = await bundleServer(content, serverOutDir);
+        const outfile = await compileServer(content, serverOutDir);
+        console.log(`[server-build] Compiled production server to ${normalizePath(relative(root, outfile))}.`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        this.error(`[server-build] Failed to bundle the production server: ${msg}`);
+        this.error(`[server-build] Failed to compile the production server: ${msg}`);
       }
-
-      mkdirSync(serverOutDir, { recursive: true });
-      writeFileSync(join(serverOutDir, 'server.js'), code, 'utf-8');
     },
   };
 }
