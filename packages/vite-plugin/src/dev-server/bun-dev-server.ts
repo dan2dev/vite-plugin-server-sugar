@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Registry } from '../core/registry';
+import type { BackendEntry } from '../types';
 import { renderRuntimeImport } from './virtual-modules';
 import { API_PREFIX } from '../constants';
 import { hasRequestBody, headersFromNode, readNodeBody, requestUrl, writeWebResponse } from './middleware';
@@ -25,17 +26,55 @@ export class BunDevServer {
   private generateScript(registry: Registry): string {
     const seenImports = new Set<string>();
     const importLines: string[] = [];
+    const preHandlerLines: string[] = [];
     const handlerLines: string[] = [];
+    let dhCounter = 0;
 
+    // Group entries by source file so module-level declarations (e.g. `const
+    // state = {}`) are shared across all handlers from the same file.
+    const entriesByFile = new Map<string, BackendEntry[]>();
     for (const entry of registry.values()) {
-      for (const ri of entry.imports) {
-        const line = renderRuntimeImport(ri, entry.file, null);
-        if (!seenImports.has(line)) {
-          seenImports.add(line);
-          importLines.push(line);
+      const arr = entriesByFile.get(entry.file) ?? [];
+      arr.push(entry);
+      entriesByFile.set(entry.file, arr);
+    }
+
+    for (const [, fileEntries] of entriesByFile) {
+      for (const entry of fileEntries) {
+        for (const ri of entry.imports) {
+          const line = renderRuntimeImport(ri, entry.file, null);
+          if (!seenImports.has(line)) {
+            seenImports.add(line);
+            importLines.push(line);
+          }
         }
       }
-      handlerLines.push(`  ${JSON.stringify(entry.endpoint)}: ${entry.fnJs},`);
+
+      const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? '';
+
+      if (!moduleDeclsJs) {
+        for (const entry of fileEntries) {
+          handlerLines.push(`  ${JSON.stringify(entry.endpoint)}: ${entry.fnJs},`);
+        }
+      } else {
+        // Wrap all handlers from this file in an IIFE so they share the same
+        // module-level state (e.g. a `const state = {}` across handlers).
+        const varNames = fileEntries.map(() => `__dh_${dhCounter++}`);
+
+        preHandlerLines.push(
+          `const [${varNames.join(', ')}] = (() => {`,
+          ...moduleDeclsJs.split('\n').map((l) => (l ? `  ${l}` : '')),
+          '  return [',
+          ...fileEntries.map((e) => `    ${e.fnJs},`),
+          '  ];',
+          '})();',
+          '',
+        );
+
+        for (let i = 0; i < fileEntries.length; i++) {
+          handlerLines.push(`  ${JSON.stringify(fileEntries[i].endpoint)}: ${varNames[i]},`);
+        }
+      }
     }
 
     const lines: string[] = [];
@@ -43,6 +82,7 @@ export class BunDevServer {
     if (this.serverEntryPath) {
       lines.push(`import __serverApp from ${JSON.stringify(this.serverEntryPath)};`, '');
     }
+    if (preHandlerLines.length > 0) lines.push(...preHandlerLines);
 
     lines.push(
       `const __handlers: Record<string, (...args: unknown[]) => unknown> = {`,

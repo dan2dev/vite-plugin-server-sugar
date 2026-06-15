@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { relative } from 'node:path';
 import { RolldownMagicString } from 'rolldown';
 import { Registry } from './registry';
-import { transpileTs } from './transpiler';
+import { transpileTs, transpileStatements } from './transpiler';
 import type { BackendEntry, RuntimeImport } from '../types';
 import {
   API_PREFIX,
@@ -188,7 +188,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       const imports = collectRuntimeImports(collectReferencedNames(arg));
       entries.push({ endpoint, imports, fnJs, file: id });
 
-      if (fileImportNames) warnOnUncapturedReferences(arg, endpoint, fileImportNames);
+      if (fileImportNames) warnOnUncapturedReferences(arg, endpoint, fileImportNames, fileModuleLocalNames);
 
       const fetchWrapper = [
         `async (...${clientArgsName}) => ${clientFetchHelperName}(`,
@@ -224,16 +224,97 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     return names;
   }
 
+  /**
+   * Returns true when the statement contains a backend() call and should be
+   * excluded from module-level declaration collection.
+   */
+  function statementHasBackendCall(statement: ts.Node): boolean {
+    let found = false;
+    const check = (n: ts.Node): void => {
+      if (found) return;
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === 'backend'
+      ) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(n, check);
+    };
+    check(statement);
+    return found;
+  }
+
+  /**
+   * Collect transpiled JS for module-level declarations that are not imports
+   * and do not contain backend() calls. These are the non-handler bindings
+   * (e.g. `const state = {}`) that backend handlers may close over.
+   */
+  function collectModuleDeclsJs(): string {
+    const parts: string[] = [];
+
+    for (const statement of sf.statements) {
+      if (ts.isImportDeclaration(statement)) continue;
+      if (ts.isExportDeclaration(statement)) continue;
+      if (ts.isInterfaceDeclaration(statement)) continue;
+      if (ts.isTypeAliasDeclaration(statement)) continue;
+      if (ts.isModuleDeclaration(statement)) continue;
+
+      const hasDeclare = statement.modifiers?.some(
+        (m) => m.kind === ts.SyntaxKind.DeclareKeyword,
+      );
+      if (hasDeclare) continue;
+
+      if (statementHasBackendCall(statement)) continue;
+
+      const stmtSource = code.slice(statement.getFullStart(), statement.getEnd()).trim();
+      if (!stmtSource) continue;
+
+      const js = transpileStatements(stmtSource);
+      if (js) parts.push(js);
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Collect the names declared by module-level non-backend statements (the
+   * same set that collectModuleDeclsJs emits). Used to suppress spurious
+   * warnings for names that are captured via the module-level IIFE.
+   */
+  function collectModuleLocalNames(): Set<string> {
+    const names = new Set<string>();
+
+    for (const statement of sf.statements) {
+      if (ts.isImportDeclaration(statement)) continue;
+      if (ts.isExportDeclaration(statement)) continue;
+      if (statementHasBackendCall(statement)) continue;
+
+      for (const name of collectBoundNames(statement)) {
+        names.add(name);
+      }
+    }
+
+    return names;
+  }
+
   function warnOnUncapturedReferences(
     fn: ts.Node,
     endpoint: string,
     importNames: Set<string>,
+    moduleLocalNames: Set<string>,
   ): void {
     const bound = collectBoundNames(fn);
     const free: string[] = [];
     for (const name of collectValueReferences(fn)) {
       if (name === 'backend') continue;
-      if (bound.has(name) || importNames.has(name) || KNOWN_GLOBALS.has(name)) continue;
+      if (
+        bound.has(name) ||
+        importNames.has(name) ||
+        KNOWN_GLOBALS.has(name) ||
+        moduleLocalNames.has(name)
+      ) continue;
       free.push(name);
     }
     if (free.length === 0) return;
@@ -248,6 +329,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   const fileImportNames = options.emitWarnings ? collectFileImportNames() : null;
+  const fileModuleLocalNames = options.emitWarnings ? collectModuleLocalNames() : new Set<string>();
 
   ts.forEachChild(sf, walk);
   if (replacements.length === 0) {
@@ -329,9 +411,12 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     });
   }
 
+  const moduleDeclsJs = collectModuleDeclsJs() || undefined;
+
   registry.unregisterFile(id);
   registry.registerFile(id, entries.map(e => e.endpoint));
   for (const entry of entries) {
+    entry.moduleDeclsJs = moduleDeclsJs;
     registry.set(entry.endpoint, entry);
   }
 

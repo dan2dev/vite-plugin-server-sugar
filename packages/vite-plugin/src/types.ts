@@ -11,6 +11,13 @@ export interface BackendEntry {
   /** Transpiled JS arrow-function expression (types stripped). */
   fnJs: string;
   file: string;
+  /**
+   * Transpiled JS of module-level (non-import) declarations from the source
+   * file that are not backend handlers. All entries from the same file share
+   * the same value. When non-empty, the bundle generator wraps all handlers
+   * from this file in a per-file IIFE so they close over the same state.
+   */
+  moduleDeclsJs?: string;
 }
 
 export interface InvalidationGraph<TModule> {

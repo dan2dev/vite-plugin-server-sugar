@@ -10,3 +10,7 @@ db.exec(`
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
   )
 `);
+
+export const state = {
+	count1: 0,
+}

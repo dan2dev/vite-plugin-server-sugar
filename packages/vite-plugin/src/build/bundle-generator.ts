@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { Registry } from "../core/registry";
+import type { BackendEntry } from "../types";
 import { API_PREFIX } from "../constants";
 import { toImportPath } from "../utils/path";
 import { backendConstName } from "../utils/crypto";
@@ -151,17 +152,56 @@ export function generateBundleContent(
     );
   }
 
+  // Group entries by source file so module-level declarations (e.g. `const
+  // state = {}`) are shared across all handlers from the same file.
+  const entriesByFile = new Map<string, BackendEntry[]>();
   for (const entry of registry.values()) {
-    const constName = backendConstName(entry.endpoint);
-    const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
+    const arr = entriesByFile.get(entry.file) ?? [];
+    arr.push(entry);
+    entriesByFile.set(entry.file, arr);
+  }
 
-    if (locals.length === 0) {
-      lines.push(`const ${constName} = ${entry.fnJs};`, "");
+  for (const [, fileEntries] of entriesByFile) {
+    const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? '';
+
+    if (!moduleDeclsJs) {
+      // No module-level state: emit each handler individually (existing behavior).
+      for (const entry of fileEntries) {
+        const constName = backendConstName(entry.endpoint);
+        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
+
+        if (locals.length === 0) {
+          lines.push(`const ${constName} = ${entry.fnJs};`, "");
+        } else {
+          lines.push(
+            `const ${constName} = ((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")});`,
+            "",
+          );
+        }
+      }
     } else {
-      lines.push(
-        `const ${constName} = ((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")});`,
-        "",
-      );
+      // Wrap all handlers from this file in an IIFE so they share the same
+      // module-level state (e.g. a mutable `const state = {}`).
+      const constNames = fileEntries.map((e) => backendConstName(e.endpoint));
+      lines.push(`const { ${constNames.join(", ")} } = (() => {`);
+
+      for (const declLine of moduleDeclsJs.split("\n")) {
+        lines.push(`  ${declLine}`);
+      }
+
+      lines.push("  return {");
+
+      for (const entry of fileEntries) {
+        const constName = backendConstName(entry.endpoint);
+        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
+        const handlerExpr =
+          locals.length === 0
+            ? entry.fnJs
+            : `((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")})`;
+        lines.push(`    ${constName}: ${handlerExpr},`);
+      }
+
+      lines.push("  };", "})();", "");
     }
   }
 
