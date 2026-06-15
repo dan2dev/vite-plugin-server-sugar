@@ -163,9 +163,11 @@ export function generateBundleContent(
 
   for (const [, fileEntries] of entriesByFile) {
     const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? '';
+    const hasSiblingCrossRefs = fileEntries[0]?.hasSiblingCrossRefs ?? false;
+    const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
 
-    if (!moduleDeclsJs) {
-      // No module-level state: emit each handler individually (existing behavior).
+    if (!useIIFE) {
+      // No module-level state and no sibling cross-refs: emit each handler individually.
       for (const entry of fileEntries) {
         const constName = backendConstName(entry.endpoint);
         const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
@@ -181,24 +183,34 @@ export function generateBundleContent(
       }
     } else {
       // Wrap all handlers from this file in an IIFE so they share the same
-      // module-level state (e.g. a mutable `const state = {}`).
+      // module-level state and can reference each other by their original names.
       const constNames = fileEntries.map((e) => backendConstName(e.endpoint));
       lines.push(`const { ${constNames.join(", ")} } = (() => {`);
 
-      for (const declLine of moduleDeclsJs.split("\n")) {
-        lines.push(`  ${declLine}`);
+      if (moduleDeclsJs) {
+        for (const declLine of moduleDeclsJs.split("\n")) {
+          lines.push(`  ${declLine}`);
+        }
+      }
+
+      // Declare each handler as a named local so siblings can call each other.
+      for (const entry of fileEntries) {
+        const constName = backendConstName(entry.endpoint);
+        const localName = entry.originalName ?? constName;
+        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
+        const handlerExpr =
+          locals.length === 0
+            ? entry.fnJs
+            : `((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")})`;
+        lines.push(`  const ${localName} = ${handlerExpr};`);
       }
 
       lines.push("  return {");
 
       for (const entry of fileEntries) {
         const constName = backendConstName(entry.endpoint);
-        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
-        const handlerExpr =
-          locals.length === 0
-            ? entry.fnJs
-            : `((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")})`;
-        lines.push(`    ${constName}: ${handlerExpr},`);
+        const localName = entry.originalName ?? constName;
+        lines.push(`    ${constName}: ${localName},`);
       }
 
       lines.push("  };", "})();", "");

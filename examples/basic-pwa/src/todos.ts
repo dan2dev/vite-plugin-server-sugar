@@ -9,19 +9,25 @@ export interface Todo {
 
 const state = {
 	count1: 0,
-	name: "danilo1",
+	get name() {
+		console.log("state getName server", this.count1);
+		return "danilo1";
+	},
 };
-
-export const getSomeData = backend(async () => {
-	state.count1 += 1;
-	return {
-		count: state.count1,
-		name: state.name,
-	};
-});
+// console.log(state.name);
 
 export const getTodos = backend(async () => {
 	return db.query<Todo, []>("SELECT * FROM todos ORDER BY created_at DESC").all();
+});
+
+export const getSomeData = backend(async () => {
+	state.count1 += 1;
+	const todos = await getTodos();
+	return {
+		count: state.count1,
+		name: state.name,
+		todos: todos,
+	};
 });
 
 export const addTodo = backend(async (text: string) => {

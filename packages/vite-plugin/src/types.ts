@@ -12,6 +12,19 @@ export interface BackendEntry {
   fnJs: string;
   file: string;
   /**
+   * Original source identifier when the handler is assigned via
+   * `const originalName = backend(...)`. Used by the bundle generator to
+   * declare named locals inside the per-file IIFE so sibling handlers can
+   * call each other by their original names.
+   */
+  originalName?: string;
+  /**
+   * True when at least one handler in this file references another sibling
+   * handler by its original name. Causes the bundle generator to use IIFE
+   * mode even when there is no shared module-level state.
+   */
+  hasSiblingCrossRefs?: boolean;
+  /**
    * Transpiled JS of module-level (non-import) declarations from the source
    * file that are not backend handlers. All entries from the same file share
    * the same value. When non-empty, the bundle generator wraps all handlers

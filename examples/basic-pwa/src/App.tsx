@@ -13,7 +13,7 @@ import type { Todo } from "./todos";
 const globalState = {
 	count1: 0,
 	get name() {
-		console.log("getName", this.count1)
+		console.log("globalState getName", this.count1)
 		return "danilo2";
 	},
 };

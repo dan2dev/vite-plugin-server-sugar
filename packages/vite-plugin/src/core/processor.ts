@@ -186,7 +186,20 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       const fnSource = code.slice(arg.getStart(sf), arg.getEnd());
       const fnJs = transpileTs(fnSource);
       const imports = collectRuntimeImports(collectReferencedNames(arg));
-      entries.push({ endpoint, imports, fnJs, file: id });
+
+      // Detect original variable name for `const x = backend(...)` patterns so
+      // the bundle generator can declare named locals in the per-file IIFE,
+      // enabling sibling handlers to call each other.
+      let originalName: string | undefined;
+      if (
+        ts.isVariableDeclaration(call.parent) &&
+        call.parent.initializer === call &&
+        ts.isIdentifier(call.parent.name)
+      ) {
+        originalName = call.parent.name.text;
+      }
+
+      entries.push({ endpoint, imports, fnJs, file: id, originalName });
 
       // Collect names the handler references that aren't imports/globals/bound.
       // These are candidates for module-level capture via the IIFE.
@@ -420,6 +433,20 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     return null;
   }
 
+  // Remove sibling handler names from allBackendFreeRefs — they will be
+  // declared as named locals in the per-file IIFE so they don't need
+  // module-level capture. Track whether any cross-reference was found so
+  // the bundle generator can force IIFE mode even without shared state.
+  const siblingHandlerNames = new Set(
+    entries.filter(e => e.originalName).map(e => e.originalName!)
+  );
+  let hasSiblingCrossRefs = false;
+  for (const name of siblingHandlerNames) {
+    if (allBackendFreeRefs.delete(name)) {
+      hasSiblingCrossRefs = true;
+    }
+  }
+
   const backendCallRanges = replacements.map(({ start, end }) => ({ start, end }));
 
   function clientHelperInsertPosition(): number {
@@ -510,6 +537,10 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
         }
       }
     }
+    // Sibling handlers are available as named locals in the IIFE.
+    for (const name of siblingHandlerNames) {
+      moduleLocalNames.add(name);
+    }
     for (const [endpoint, fn] of backendFnNodes) {
       warnOnUncapturedReferences(fn, endpoint, moduleLocalNames);
     }
@@ -519,6 +550,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   registry.registerFile(id, entries.map(e => e.endpoint));
   for (const entry of entries) {
     entry.moduleDeclsJs = moduleDeclsJs;
+    entry.hasSiblingCrossRefs = hasSiblingCrossRefs;
     registry.set(entry.endpoint, entry);
   }
 
