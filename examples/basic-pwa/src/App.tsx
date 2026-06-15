@@ -12,7 +12,10 @@ import type { Todo } from "./todos";
 
 const globalState = {
 	count1: 0,
-	name: "danilo2",
+	get name() {
+		console.log("getName", this.count1)
+		return "danilo2";
+	},
 };
 
 const getSomeData2 = backend(async () => {

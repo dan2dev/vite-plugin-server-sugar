@@ -114,3 +114,4 @@ dist
 *.db
 *.bun-build
 .kiro/
+.vite/
