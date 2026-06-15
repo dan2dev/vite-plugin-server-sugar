@@ -1,26 +1,24 @@
-import ts from 'typescript';
-import { relative } from 'node:path';
-import { RolldownMagicString } from 'rolldown';
-import { Registry } from './registry';
-import { transpileTs, transpileStatements } from './transpiler';
-import type { BackendEntry, RuntimeImport } from '../types';
+import ts from "typescript";
+import { relative } from "node:path";
+import { RolldownMagicString } from "rolldown";
+import { Registry } from "./registry";
+import { transpileTs, transpileStatements } from "./transpiler";
+import type { BackendEntry, RuntimeImport } from "../types";
 import {
   API_PREFIX,
   CLIENT_FETCH_EXPORT,
-  CLIENT_HELPER_ID
-} from '../constants';
-import {
-  normalizePath
-} from '../utils/path';
-import { toKebabCase } from '../utils/crypto';
+  CLIENT_HELPER_ID,
+} from "../constants";
+import { normalizePath } from "../utils/path";
+import { toKebabCase } from "../utils/crypto";
 import {
   collectIdentifierNames,
   collectReferencedNames,
   collectValueReferences,
   collectBoundNames,
   isReferenceIdentifier,
-  inferBackendLabel
-} from '../utils/ast';
+  inferBackendLabel,
+} from "../utils/ast";
 
 /**
  * Identifiers that resolve to ambient globals available in the Bun server
@@ -28,22 +26,90 @@ import {
  * they are neither imported nor declared locally.
  */
 const KNOWN_GLOBALS = new Set<string>([
-  'globalThis', 'Bun', 'process', 'console', 'fetch', 'crypto', 'performance',
-  'Response', 'Request', 'Headers', 'FormData', 'Blob', 'File', 'URL',
-  'URLSearchParams', 'AbortController', 'AbortSignal', 'TextEncoder',
-  'TextDecoder', 'ReadableStream', 'WritableStream', 'TransformStream',
-  'structuredClone', 'atob', 'btoa', 'setTimeout', 'setInterval',
-  'clearTimeout', 'clearInterval', 'queueMicrotask', 'JSON', 'Math', 'Date',
-  'Object', 'Array', 'String', 'Number', 'Boolean', 'Symbol', 'BigInt', 'Map',
-  'Set', 'WeakMap', 'WeakSet', 'WeakRef', 'Promise', 'RegExp', 'Proxy',
-  'Reflect', 'Intl', 'Error', 'TypeError', 'RangeError', 'SyntaxError',
-  'EvalError', 'ReferenceError', 'URIError', 'AggregateError', 'Function',
-  'NaN', 'Infinity', 'undefined', 'parseInt', 'parseFloat', 'isNaN',
-  'isFinite', 'encodeURIComponent', 'decodeURIComponent', 'encodeURI',
-  'decodeURI', 'ArrayBuffer', 'SharedArrayBuffer', 'DataView', 'Int8Array',
-  'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array',
-  'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array',
-  'BigUint64Array',
+  "globalThis",
+  "Bun",
+  "process",
+  "console",
+  "fetch",
+  "crypto",
+  "performance",
+  "Response",
+  "Request",
+  "Headers",
+  "FormData",
+  "Blob",
+  "File",
+  "URL",
+  "URLSearchParams",
+  "AbortController",
+  "AbortSignal",
+  "TextEncoder",
+  "TextDecoder",
+  "ReadableStream",
+  "WritableStream",
+  "TransformStream",
+  "structuredClone",
+  "atob",
+  "btoa",
+  "setTimeout",
+  "setInterval",
+  "clearTimeout",
+  "clearInterval",
+  "queueMicrotask",
+  "JSON",
+  "Math",
+  "Date",
+  "Object",
+  "Array",
+  "String",
+  "Number",
+  "Boolean",
+  "Symbol",
+  "BigInt",
+  "Map",
+  "Set",
+  "WeakMap",
+  "WeakSet",
+  "WeakRef",
+  "Promise",
+  "RegExp",
+  "Proxy",
+  "Reflect",
+  "Intl",
+  "Error",
+  "TypeError",
+  "RangeError",
+  "SyntaxError",
+  "EvalError",
+  "ReferenceError",
+  "URIError",
+  "AggregateError",
+  "Function",
+  "NaN",
+  "Infinity",
+  "undefined",
+  "parseInt",
+  "parseFloat",
+  "isNaN",
+  "isFinite",
+  "encodeURIComponent",
+  "decodeURIComponent",
+  "encodeURI",
+  "decodeURI",
+  "ArrayBuffer",
+  "SharedArrayBuffer",
+  "DataView",
+  "Int8Array",
+  "Uint8Array",
+  "Uint8ClampedArray",
+  "Int16Array",
+  "Uint16Array",
+  "Int32Array",
+  "Uint32Array",
+  "Float32Array",
+  "Float64Array",
+  "BigInt64Array",
+  "BigUint64Array",
 ]);
 
 export interface ProcessorOptions {
@@ -62,7 +128,11 @@ export interface ProcessResult {
   map: string | null;
 }
 
-export function processFile(code: string, id: string, options: ProcessorOptions): ProcessResult | null {
+export function processFile(
+  code: string,
+  id: string,
+  options: ProcessorOptions,
+): ProcessResult | null {
   const { registry, root } = options;
 
   if (!/\bbackend\s*\(/.test(code)) {
@@ -89,19 +159,19 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   const clientFetchHelperName = uniqueLocalName(CLIENT_FETCH_EXPORT);
-  const clientArgsName = uniqueLocalName('__backendArgs');
+  const clientArgsName = uniqueLocalName("__backendArgs");
 
   function endpointName(file: string, name: string): string {
     let rel = normalizePath(relative(root, file));
-    if (rel.startsWith('src/')) rel = rel.slice(4);
-    const base = rel.replace(/\.(tsx?|jsx?)$/, '');
+    if (rel.startsWith("src/")) rel = rel.slice(4);
+    const base = rel.replace(/\.(tsx?|jsx?)$/, "");
 
-    const segments = [...base.split('/'), name];
-    return segments.map(toKebabCase).join('/');
+    const segments = [...base.split("/"), name];
+    return segments.map(toKebabCase).join("/");
   }
 
   function endpointUrl(endpoint: string): string {
-    return API_PREFIX + endpoint.split('/').map(encodeURIComponent).join('/');
+    return API_PREFIX + endpoint.split("/").map(encodeURIComponent).join("/");
   }
 
   function collectRuntimeImports(usedNames: Set<string>): RuntimeImport[] {
@@ -132,7 +202,8 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
           }
         } else {
           for (const element of namedBindings.elements) {
-            if (element.isTypeOnly || !usedNames.has(element.name.text)) continue;
+            if (element.isTypeOnly || !usedNames.has(element.name.text))
+              continue;
 
             runtimeImport.named.push({
               imported: element.propertyName?.text ?? element.name.text,
@@ -161,7 +232,9 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       return endpoint;
     }
 
-    const { line, character } = sf.getLineAndCharacterOfPosition(call.getStart(sf));
+    const { line, character } = sf.getLineAndCharacterOfPosition(
+      call.getStart(sf),
+    );
     const fallbackLabel = `backend@${line + 1}:${character + 1}`;
     const duplicateEndpoint = endpointName(id, `${label}.${fallbackLabel}`);
     usedEndpoints.add(duplicateEndpoint);
@@ -172,7 +245,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === 'backend'
+      node.expression.text === "backend"
     ) {
       const call = node;
       const arg = node.arguments[0];
@@ -205,8 +278,13 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       // These are candidates for module-level capture via the IIFE.
       const bound = collectBoundNames(arg);
       for (const name of collectValueReferences(arg)) {
-        if (name === 'backend') continue;
-        if (bound.has(name) || fileImportNames.has(name) || KNOWN_GLOBALS.has(name)) continue;
+        if (name === "backend") continue;
+        if (
+          bound.has(name) ||
+          fileImportNames.has(name) ||
+          KNOWN_GLOBALS.has(name)
+        )
+          continue;
         allBackendFreeRefs.add(name);
       }
 
@@ -216,7 +294,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
         `async (...${clientArgsName}) => ${clientFetchHelperName}(`,
         `${JSON.stringify(endpointUrl(endpoint))}, `,
         `JSON.stringify(${clientArgsName}))`,
-      ].join('');
+      ].join("");
 
       replacements.push({
         start: call.getStart(sf),
@@ -240,7 +318,8 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       if (ts.isNamespaceImport(namedBindings)) {
         names.add(namedBindings.name.text);
       } else {
-        for (const element of namedBindings.elements) names.add(element.name.text);
+        for (const element of namedBindings.elements)
+          names.add(element.name.text);
       }
     }
     return names;
@@ -257,7 +336,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       if (
         ts.isCallExpression(n) &&
         ts.isIdentifier(n.expression) &&
-        n.expression.text === 'backend'
+        n.expression.text === "backend"
       ) {
         found = true;
         return;
@@ -289,7 +368,8 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     }
 
     if (ts.isVariableStatement(statement)) {
-      for (const decl of statement.declarationList.declarations) addName(decl.name);
+      for (const decl of statement.declarationList.declarations)
+        addName(decl.name);
     } else if (ts.isFunctionDeclaration(statement) && statement.name) {
       names.add(statement.name.text);
     } else if (ts.isClassDeclaration(statement) && statement.name) {
@@ -323,8 +403,8 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     // Build a list of candidate declarations (non-import, non-backend, non-type).
     type DeclInfo = {
       statement: ts.Statement;
-      bindings: Set<string>;  // names this statement introduces at top level
-      refs: Set<string>;      // non-global, non-import names this statement uses
+      bindings: Set<string>; // names this statement introduces at top level
+      refs: Set<string>; // non-global, non-import names this statement uses
     };
 
     const candidates: DeclInfo[] = [];
@@ -336,7 +416,10 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       if (ts.isTypeAliasDeclaration(statement)) continue;
       if (ts.isModuleDeclaration(statement)) continue;
 
-      const hasDeclare = statement.modifiers?.some(
+      const modifiers = ts.canHaveModifiers(statement)
+        ? ts.getModifiers(statement)
+        : undefined;
+      const hasDeclare = modifiers?.some(
         (m) => m.kind === ts.SyntaxKind.DeclareKeyword,
       );
       if (hasDeclare) continue;
@@ -349,7 +432,11 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       // Collect names referenced by this statement that aren't globals or imports.
       const refs = new Set<string>();
       for (const name of collectValueReferences(statement)) {
-        if (!KNOWN_GLOBALS.has(name) && !fileImportNames.has(name) && !bindings.has(name)) {
+        if (
+          !KNOWN_GLOBALS.has(name) &&
+          !fileImportNames.has(name) &&
+          !bindings.has(name)
+        ) {
           refs.add(name);
         }
       }
@@ -384,13 +471,15 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     const parts: string[] = [];
     for (const decl of candidates) {
       if (!included.has(decl)) continue;
-      const stmtSource = code.slice(decl.statement.getFullStart(), decl.statement.getEnd()).trim();
+      const stmtSource = code
+        .slice(decl.statement.getFullStart(), decl.statement.getEnd())
+        .trim();
       if (!stmtSource) continue;
       const js = transpileStatements(stmtSource);
       if (js) parts.push(js);
     }
 
-    return parts.join('\n');
+    return parts.join("\n");
   }
 
   function warnOnUncapturedReferences(
@@ -401,23 +490,24 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     const bound = collectBoundNames(fn);
     const free: string[] = [];
     for (const name of collectValueReferences(fn)) {
-      if (name === 'backend') continue;
+      if (name === "backend") continue;
       if (
         bound.has(name) ||
         fileImportNames.has(name) ||
         KNOWN_GLOBALS.has(name) ||
         moduleLocalNames.has(name)
-      ) continue;
+      )
+        continue;
       free.push(name);
     }
     if (free.length === 0) return;
 
-    const list = free.map((name) => `'${name}'`).join(', ');
+    const list = free.map((name) => `'${name}'`).join(", ");
     const isOne = free.length === 1;
     console.warn(
       `[server-build] ${normalizePath(relative(root, id))}: backend handler "${endpoint}" references ` +
-        `${list} which ${isOne ? 'is' : 'are'} not imported, a parameter, or a known global. ` +
-        `${isOne ? 'It' : 'They'} will be undefined when the handler runs on the server.`,
+        `${list} which ${isOne ? "is" : "are"} not imported, a parameter, or a known global. ` +
+        `${isOne ? "It" : "They"} will be undefined when the handler runs on the server.`,
     );
   }
 
@@ -438,7 +528,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   // module-level capture. Track whether any cross-reference was found so
   // the bundle generator can force IIFE mode even without shared state.
   const siblingHandlerNames = new Set(
-    entries.filter(e => e.originalName).map(e => e.originalName!)
+    entries.filter((e) => e.originalName).map((e) => e.originalName!),
   );
   let hasSiblingCrossRefs = false;
   for (const name of siblingHandlerNames) {
@@ -447,7 +537,10 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     }
   }
 
-  const backendCallRanges = replacements.map(({ start, end }) => ({ start, end }));
+  const backendCallRanges = replacements.map(({ start, end }) => ({
+    start,
+    end,
+  }));
 
   function clientHelperInsertPosition(): number {
     let position = 0;
@@ -459,17 +552,21 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   const helperInsertPosition = clientHelperInsertPosition();
-  const importClause = clientFetchHelperName === CLIENT_FETCH_EXPORT
-    ? CLIENT_FETCH_EXPORT
-    : `${CLIENT_FETCH_EXPORT} as ${clientFetchHelperName}`;
+  const importClause =
+    clientFetchHelperName === CLIENT_FETCH_EXPORT
+      ? CLIENT_FETCH_EXPORT
+      : `${CLIENT_FETCH_EXPORT} as ${clientFetchHelperName}`;
 
   replacements.push({
     start: helperInsertPosition,
     end: helperInsertPosition,
-    text: `${helperInsertPosition === 0 ? '' : '\n'}import { ${importClause} } from ${JSON.stringify(CLIENT_HELPER_ID)};\n`,
+    text: `${helperInsertPosition === 0 ? "" : "\n"}import { ${importClause} } from ${JSON.stringify(CLIENT_HELPER_ID)};\n`,
   });
 
-  function isInsideRange(position: number, ranges: Array<{ start: number; end: number }>): boolean {
+  function isInsideRange(
+    position: number,
+    ranges: Array<{ start: number; end: number }>,
+  ): boolean {
     return ranges.some(({ start, end }) => position >= start && position < end);
   }
 
@@ -502,11 +599,11 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       }
     }
 
-    if (names.length > 0 && !names.some(name => outsideNames.has(name))) {
+    if (names.length > 0 && !names.some((name) => outsideNames.has(name))) {
       replacements.push({
         start: statement.getFullStart(),
         end: statement.getEnd(),
-        text: '',
+        text: "",
       });
     }
   }
@@ -517,7 +614,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     replacements.push({
       start: declareMatch.index,
       end: declareMatch.index + declareMatch[0].length,
-      text: '',
+      text: "",
     });
   }
 
@@ -547,7 +644,10 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   registry.unregisterFile(id);
-  registry.registerFile(id, entries.map(e => e.endpoint));
+  registry.registerFile(
+    id,
+    entries.map((e) => e.endpoint),
+  );
   for (const entry of entries) {
     entry.moduleDeclsJs = moduleDeclsJs;
     entry.hasSiblingCrossRefs = hasSiblingCrossRefs;
@@ -559,7 +659,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     if (r.start === r.end) {
       if (r.start === 0) magic.appendLeft(0, r.text);
       else magic.appendRight(r.start, r.text);
-    } else if (r.text === '') {
+    } else if (r.text === "") {
       magic.remove(r.start, r.end);
     } else {
       magic.overwrite(r.start, r.end, r.text);
@@ -568,6 +668,8 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
 
   return {
     code: magic.toString(),
-    map: magic.generateMap({ source: id, includeContent: true, hires: true }).toString(),
+    map: magic
+      .generateMap({ source: id, includeContent: true, hires: true })
+      .toString(),
   };
 }

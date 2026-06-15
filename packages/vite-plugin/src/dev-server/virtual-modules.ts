@@ -1,14 +1,18 @@
-import { Registry } from '../core/registry';
-import type { RuntimeImport } from '../types';
+import { dirname, resolve } from "node:path";
+
+import { Registry } from "../core/registry";
+import type { BackendEntry, RuntimeImport } from "../types";
 import {
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
   RESOLVED_CLIENT_HELPER_ID,
+  RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
-  VIRTUAL_PREFIX
-} from '../constants';
-import { isRelativeImport, normalizePath, toImportPath } from '../utils/path';
-import { dirname, resolve } from 'node:path';
+  VIRTUAL_FILE_PREFIX,
+  VIRTUAL_PREFIX,
+} from "../constants";
+import { backendConstName } from "../utils/crypto";
+import { isRelativeImport, normalizePath, toImportPath } from "../utils/path";
 
 export function runtimeImportSpecifier(
   sourceFile: string,
@@ -51,7 +55,7 @@ export function renderRuntimeImport(
 
   const namedImports = runtimeImport.named
     .map(({ imported, local }) => renderNamedImport(imported, local))
-    .join(', ');
+    .join(", ");
 
   if (runtimeImport.defaultName && namedImports) {
     return `import ${runtimeImport.defaultName}, { ${namedImports} } from ${specifier};`;
@@ -64,13 +68,83 @@ export function renderRuntimeImport(
   return `import { ${namedImports} } from ${specifier};`;
 }
 
+export function virtualBackendFileId(file: string): string {
+  return VIRTUAL_FILE_PREFIX + encodeURIComponent(file);
+}
+
 export function resolveVirtualId(id: string): string | undefined {
   if (id === CLIENT_HELPER_ID) {
     return RESOLVED_CLIENT_HELPER_ID;
   }
+  if (id.startsWith(VIRTUAL_FILE_PREFIX)) {
+    return RESOLVED_FILE_PREFIX + id.slice(VIRTUAL_FILE_PREFIX.length);
+  }
   if (id.startsWith(VIRTUAL_PREFIX)) {
     return RESOLVED_PREFIX + id.slice(VIRTUAL_PREFIX.length);
   }
+}
+
+function backendEntriesForFile(
+  registry: Registry,
+  file: string,
+): BackendEntry[] {
+  return [...registry.values()].filter((entry) => entry.file === file);
+}
+
+function backendFileModuleCode(fileEntries: BackendEntry[]): string {
+  const seenImports = new Set<string>();
+  const importLines: string[] = [];
+
+  for (const entry of fileEntries) {
+    for (const runtimeImport of entry.imports) {
+      const line = renderRuntimeImport(runtimeImport, entry.file, null);
+      if (!seenImports.has(line)) {
+        seenImports.add(line);
+        importLines.push(line);
+      }
+    }
+  }
+
+  const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? "";
+  const hasSiblingCrossRefs = fileEntries[0]?.hasSiblingCrossRefs ?? false;
+  const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
+  const constNames = fileEntries.map((entry) =>
+    backendConstName(entry.endpoint),
+  );
+  const lines: string[] = [];
+
+  if (importLines.length > 0) lines.push(...importLines, "");
+
+  if (!useIIFE) {
+    for (const entry of fileEntries) {
+      lines.push(`const ${backendConstName(entry.endpoint)} = ${entry.fnJs};`);
+    }
+  } else {
+    lines.push(`const { ${constNames.join(", ")} } = (() => {`);
+
+    if (moduleDeclsJs) {
+      for (const declLine of moduleDeclsJs.split("\n")) {
+        lines.push(declLine ? `  ${declLine}` : "");
+      }
+    }
+
+    for (const entry of fileEntries) {
+      const constName = backendConstName(entry.endpoint);
+      const localName = entry.originalName ?? constName;
+      lines.push(`  const ${localName} = ${entry.fnJs};`);
+    }
+
+    lines.push("  return {");
+    for (const entry of fileEntries) {
+      const constName = backendConstName(entry.endpoint);
+      const localName = entry.originalName ?? constName;
+      lines.push(`    ${constName}: ${localName},`);
+    }
+    lines.push("  };", "})();");
+  }
+
+  lines.push("", `export { ${constNames.join(", ")} };`, "");
+  return lines.join("\n");
 }
 
 export function loadVirtualModule(id: string, registry: Registry) {
@@ -94,8 +168,19 @@ export function loadVirtualModule(id: string, registry: Registry) {
         `  }`,
         `  return __text ? JSON.parse(__text) : undefined;`,
         `}`,
-        '',
-      ].join('\n'),
+        "",
+      ].join("\n"),
+      map: null,
+    };
+  }
+
+  if (id.startsWith(RESOLVED_FILE_PREFIX)) {
+    const file = decodeURIComponent(id.slice(RESOLVED_FILE_PREFIX.length));
+    const fileEntries = backendEntriesForFile(registry, file);
+    if (fileEntries.length === 0) return;
+
+    return {
+      code: backendFileModuleCode(fileEntries),
       map: null,
     };
   }
@@ -105,12 +190,8 @@ export function loadVirtualModule(id: string, registry: Registry) {
   const entry = registry.get(name);
   if (!entry) return;
 
-  const imports = entry.imports
-    .map((runtimeImport) => renderRuntimeImport(runtimeImport, entry.file, null))
-    .join('\n');
-
   return {
-    code: `${imports}${imports ? '\n\n' : ''}export default ${entry.fnJs};\n`,
+    code: `export { ${backendConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualBackendFileId(entry.file))};\n`,
     map: null,
   };
 }
