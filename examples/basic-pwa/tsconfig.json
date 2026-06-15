@@ -7,7 +7,7 @@
       "vite/client",
       "bun-types",
       "vite-plugin-server-build/backend",
-      "node"
+      "node",
     ],
     "skipLibCheck": true,
 
@@ -23,7 +23,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
 }

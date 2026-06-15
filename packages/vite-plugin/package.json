@@ -27,19 +27,21 @@
       "types": "./dist/index.d.mts"
     },
     "./backend": {
-      "types": "./dist/backend.d.ts"
+      "types": "./backend.d.ts"
     },
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "backend.d.ts"
   ],
   "scripts": {
-    "build": "tsdown && cp src/backend.d.ts dist/backend.d.ts",
+    "build": "tsdown && cp backend.d.ts dist/backend.d.ts",
     "build:watch": "tsdown --watch",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit",
     "release": "bumpp",
+    "prepare": "bun run build",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
