@@ -10,7 +10,7 @@ import { invalidateBackendModules } from './dev-server/hmr';
 import { BunDevServer } from './dev-server/bun-dev-server';
 import { loadVirtualModule, resolveVirtualId } from './dev-server/virtual-modules';
 import { generateBundleContent } from './build/bundle-generator';
-import { compileServer, writeServerSource } from './build/bundler';
+import { bundleServerSource, compileServer } from './build/bundler';
 import { API_PREFIX, RESOLVED_CLIENT_HELPER_ID, RESOLVED_PREFIX } from './constants';
 import { normalizePath } from './utils/path';
 
@@ -193,7 +193,7 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
       );
       if (!content) return;
 
-      const serverSource = writeServerSource(content, serverOutDir);
+      const serverSource = await bundleServerSource(content, serverOutDir, root);
       console.log(`[server-build] Wrote production server to ${normalizePath(relative(root, serverSource))}.`);
 
       if (compile) {
