@@ -15,11 +15,6 @@ function importedNameToken(imported: string): string {
   return /^[A-Za-z_$][\w$]*$/.test(imported) ? imported : JSON.stringify(imported);
 }
 
-function toDirectoryUrlPath(fromDir: string, targetDir: string): string {
-  const path = toImportPath(fromDir, targetDir);
-  return path.endsWith('/') ? path : `${path}/`;
-}
-
 export function generateBundleContent(
   registry: Registry,
   serverEntry: string | undefined,
@@ -41,7 +36,6 @@ export function generateBundleContent(
   const serverImportPath = hasServerEntry
     ? toImportPath(serverOutDir, serverEntryPath!)
     : null;
-  const clientRootPath = toDirectoryUrlPath(serverOutDir, clientOutDir);
 
   // Backend handlers from many source files are inlined into this single
   // module. Two files may legitimately use the same local name for different
@@ -124,6 +118,7 @@ export function generateBundleContent(
     serverImportPath
       ? `import * as __serverEntry from '${serverImportPath}';`
       : "import { Hono } from 'hono';",
+    "import { dirname, join, resolve } from 'path';",
     ...backendImports,
     '',
   ];
@@ -190,7 +185,7 @@ export function generateBundleContent(
     `app.all('${API_PREFIX}*', (c) => c.json({ error: 'Method not allowed' }, 405, { Allow: 'POST' }));`,
     '',
     '// Serve static assets from the client build directory',
-    `const __clientRoot = new URL(${JSON.stringify(clientRootPath)}, import.meta.url);`,
+    "const __clientRoot = resolve(dirname(process.execPath), '../client/');",
     '',
     'app.use("*", async (c, next) => {',
     '  if (c.req.method !== "GET" && c.req.method !== "HEAD") {',
@@ -213,10 +208,13 @@ export function generateBundleContent(
     '',
     '  // Try to serve the exact file',
     '  if (!normalizedPathname.endsWith("/")) {',
-    '    const filePath = new URL(`.${normalizedPathname}`, __clientRoot);',
+    '    const filePath = join(__clientRoot, normalizedPathname);',
     '    const file = Bun.file(filePath);',
     '    if (await file.exists()) {',
-    '      return new Response(file);',
+    '      const cacheControl = normalizedPathname.includes("/assets/")',
+    '        ? "public, max-age=31536000, immutable"',
+    '        : "public, max-age=0, must-revalidate";',
+    '      return new Response(file, { headers: { "Cache-Control": cacheControl } });',
     '    }',
     '  }',
     '',
@@ -225,10 +223,10 @@ export function generateBundleContent(
     '',
     '// SPA fallback: serve index.html for any other GET requests',
     'app.get("*", async (c) => {',
-    '  const index = Bun.file(new URL("./index.html", __clientRoot));',
+    '  const index = Bun.file(join(__clientRoot, "index.html"));',
     '  if (await index.exists()) {',
     '    return new Response(index, {',
-    '      headers: { "Content-Type": "text/html; charset=utf-8" },',
+    '      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, max-age=0, must-revalidate" },',
     '    });',
     '  }',
     '',
@@ -239,7 +237,7 @@ export function generateBundleContent(
     '',
     'Bun.serve({',
     '  port: PORT,',
-    '  fetch: app.fetch,',
+    '  fetch: (req) => app.fetch(req),',
     '});',
     '',
     'console.log(`[backend] Listening on http://localhost:${PORT}`);',
