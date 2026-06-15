@@ -51,21 +51,26 @@ export class BunDevServer {
       }
 
       const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? '';
+      const hasSiblingCrossRefs = fileEntries[0]?.hasSiblingCrossRefs ?? false;
+      const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
 
-      if (!moduleDeclsJs) {
+      if (!useIIFE) {
         for (const entry of fileEntries) {
           handlerLines.push(`  ${JSON.stringify(entry.endpoint)}: ${entry.fnJs},`);
         }
       } else {
         // Wrap all handlers from this file in an IIFE so they share the same
-        // module-level state (e.g. a `const state = {}` across handlers).
+        // module-level state and can reference each other by their original names.
         const varNames = fileEntries.map(() => `__dh_${dhCounter++}`);
+        const localNames = fileEntries.map((e, i) => e.originalName ?? varNames[i]);
 
         preHandlerLines.push(
           `const [${varNames.join(', ')}] = (() => {`,
-          ...moduleDeclsJs.split('\n').map((l) => (l ? `  ${l}` : '')),
+          ...(moduleDeclsJs ? moduleDeclsJs.split('\n').map((l) => (l ? `  ${l}` : '')) : []),
+          // Declare each handler as a named local so siblings can reference each other.
+          ...fileEntries.map((e, i) => `  const ${localNames[i]} = ${e.fnJs};`),
           '  return [',
-          ...fileEntries.map((e) => `    ${e.fnJs},`),
+          ...localNames.map((name) => `    ${name},`),
           '  ];',
           '})();',
           '',
