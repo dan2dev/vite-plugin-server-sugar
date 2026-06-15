@@ -188,7 +188,16 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       const imports = collectRuntimeImports(collectReferencedNames(arg));
       entries.push({ endpoint, imports, fnJs, file: id });
 
-      if (fileImportNames) warnOnUncapturedReferences(arg, endpoint, fileImportNames, fileModuleLocalNames);
+      // Collect names the handler references that aren't imports/globals/bound.
+      // These are candidates for module-level capture via the IIFE.
+      const bound = collectBoundNames(arg);
+      for (const name of collectValueReferences(arg)) {
+        if (name === 'backend') continue;
+        if (bound.has(name) || fileImportNames.has(name) || KNOWN_GLOBALS.has(name)) continue;
+        allBackendFreeRefs.add(name);
+      }
+
+      if (backendFnNodes) backendFnNodes.set(endpoint, arg);
 
       const fetchWrapper = [
         `async (...${clientArgsName}) => ${clientFetchHelperName}(`,
@@ -247,12 +256,65 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   /**
-   * Collect transpiled JS for module-level declarations that are not imports
-   * and do not contain backend() calls. These are the non-handler bindings
-   * (e.g. `const state = {}`) that backend handlers may close over.
+   * Returns the names introduced at the TOP LEVEL of a statement — i.e. the
+   * public bindings of the declaration without recursing into the body.
+   *
+   * For `const { a, b } = foo()` → `{ a, b }`.
+   * For `function App() { ... }` → `{ App }` (not the locals inside App).
+   */
+  function statementTopLevelBindings(statement: ts.Statement): Set<string> {
+    const names = new Set<string>();
+
+    function addName(n: ts.BindingName): void {
+      if (ts.isIdentifier(n)) {
+        names.add(n.text);
+      } else {
+        for (const el of n.elements) {
+          if (ts.isBindingElement(el)) addName(el.name);
+        }
+      }
+    }
+
+    if (ts.isVariableStatement(statement)) {
+      for (const decl of statement.declarationList.declarations) addName(decl.name);
+    } else if (ts.isFunctionDeclaration(statement) && statement.name) {
+      names.add(statement.name.text);
+    } else if (ts.isClassDeclaration(statement) && statement.name) {
+      names.add(statement.name.text);
+    } else if (ts.isEnumDeclaration(statement)) {
+      names.add(statement.name.text);
+    }
+
+    return names;
+  }
+
+  // Names referenced by any backend handler in this file that are not:
+  // - import-bound (captured via collectRuntimeImports)
+  // - function parameters / local variables (bound inside the handler)
+  // - known globals
+  //
+  // Populated during walk(). Used by collectModuleDeclsJs() to select which
+  // module-level declarations to emit into the per-file IIFE.
+  const allBackendFreeRefs = new Set<string>();
+
+  // Always compute import names — needed to filter allBackendFreeRefs.
+  const fileImportNames = collectFileImportNames();
+
+  /**
+   * Collect transpiled JS for module-level declarations that are REFERENCED by
+   * at least one backend handler in this file. Only top-level bindings are
+   * checked (so a React component's local variables don't accidentally match).
+   * Transitively pulls in declarations that are referenced by included ones.
    */
   function collectModuleDeclsJs(): string {
-    const parts: string[] = [];
+    // Build a list of candidate declarations (non-import, non-backend, non-type).
+    type DeclInfo = {
+      statement: ts.Statement;
+      bindings: Set<string>;  // names this statement introduces at top level
+      refs: Set<string>;      // non-global, non-import names this statement uses
+    };
+
+    const candidates: DeclInfo[] = [];
 
     for (const statement of sf.statements) {
       if (ts.isImportDeclaration(statement)) continue;
@@ -268,9 +330,49 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
 
       if (statementHasBackendCall(statement)) continue;
 
-      const stmtSource = code.slice(statement.getFullStart(), statement.getEnd()).trim();
-      if (!stmtSource) continue;
+      const bindings = statementTopLevelBindings(statement);
+      if (bindings.size === 0) continue; // expression-only statements
 
+      // Collect names referenced by this statement that aren't globals or imports.
+      const refs = new Set<string>();
+      for (const name of collectValueReferences(statement)) {
+        if (!KNOWN_GLOBALS.has(name) && !fileImportNames.has(name) && !bindings.has(name)) {
+          refs.add(name);
+        }
+      }
+
+      candidates.push({ statement, bindings, refs });
+    }
+
+    // Transitively expand: start with what backends directly need, then
+    // include declarations that satisfy those names and add their own refs.
+    const needed = new Set(allBackendFreeRefs);
+    let changed = true;
+    const included = new Set<DeclInfo>();
+
+    while (changed) {
+      changed = false;
+      for (const decl of candidates) {
+        if (included.has(decl)) continue;
+        if ([...decl.bindings].some((n) => needed.has(n))) {
+          included.add(decl);
+          changed = true;
+          for (const ref of decl.refs) {
+            if (!needed.has(ref)) {
+              needed.add(ref);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+
+    // Emit included declarations in document order.
+    const parts: string[] = [];
+    for (const decl of candidates) {
+      if (!included.has(decl)) continue;
+      const stmtSource = code.slice(decl.statement.getFullStart(), decl.statement.getEnd()).trim();
+      if (!stmtSource) continue;
       const js = transpileStatements(stmtSource);
       if (js) parts.push(js);
     }
@@ -278,31 +380,9 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     return parts.join('\n');
   }
 
-  /**
-   * Collect the names declared by module-level non-backend statements (the
-   * same set that collectModuleDeclsJs emits). Used to suppress spurious
-   * warnings for names that are captured via the module-level IIFE.
-   */
-  function collectModuleLocalNames(): Set<string> {
-    const names = new Set<string>();
-
-    for (const statement of sf.statements) {
-      if (ts.isImportDeclaration(statement)) continue;
-      if (ts.isExportDeclaration(statement)) continue;
-      if (statementHasBackendCall(statement)) continue;
-
-      for (const name of collectBoundNames(statement)) {
-        names.add(name);
-      }
-    }
-
-    return names;
-  }
-
   function warnOnUncapturedReferences(
     fn: ts.Node,
     endpoint: string,
-    importNames: Set<string>,
     moduleLocalNames: Set<string>,
   ): void {
     const bound = collectBoundNames(fn);
@@ -311,7 +391,7 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
       if (name === 'backend') continue;
       if (
         bound.has(name) ||
-        importNames.has(name) ||
+        fileImportNames.has(name) ||
         KNOWN_GLOBALS.has(name) ||
         moduleLocalNames.has(name)
       ) continue;
@@ -328,8 +408,11 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
     );
   }
 
-  const fileImportNames = options.emitWarnings ? collectFileImportNames() : null;
-  const fileModuleLocalNames = options.emitWarnings ? collectModuleLocalNames() : new Set<string>();
+  // Store fn AST nodes for deferred warning emission (warnings need moduleLocalNames
+  // which is only known after walk completes and collectModuleDeclsJs runs).
+  const backendFnNodes = options.emitWarnings
+    ? new Map<string, ts.Node>()
+    : null;
 
   ts.forEachChild(sf, walk);
   if (replacements.length === 0) {
@@ -412,6 +495,25 @@ export function processFile(code: string, id: string, options: ProcessorOptions)
   }
 
   const moduleDeclsJs = collectModuleDeclsJs() || undefined;
+
+  // Emit deferred warnings now that we know which module-level names are captured.
+  if (backendFnNodes && backendFnNodes.size > 0) {
+    // Build the set of names that are captured via the IIFE (from moduleDeclsJs).
+    const moduleLocalNames = new Set<string>();
+    if (moduleDeclsJs) {
+      for (const statement of sf.statements) {
+        if (ts.isImportDeclaration(statement)) continue;
+        if (ts.isExportDeclaration(statement)) continue;
+        if (statementHasBackendCall(statement)) continue;
+        for (const name of statementTopLevelBindings(statement)) {
+          if (allBackendFreeRefs.has(name)) moduleLocalNames.add(name);
+        }
+      }
+    }
+    for (const [endpoint, fn] of backendFnNodes) {
+      warnOnUncapturedReferences(fn, endpoint, moduleLocalNames);
+    }
+  }
 
   registry.unregisterFile(id);
   registry.registerFile(id, entries.map(e => e.endpoint));
