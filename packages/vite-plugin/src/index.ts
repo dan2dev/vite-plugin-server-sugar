@@ -10,13 +10,14 @@ import { invalidateBackendModules } from './dev-server/hmr';
 import { BunDevServer } from './dev-server/bun-dev-server';
 import { loadVirtualModule, resolveVirtualId } from './dev-server/virtual-modules';
 import { generateBundleContent } from './build/bundle-generator';
-import { compileServer } from './build/bundler';
+import { compileServer, writeServerSource } from './build/bundler';
 import { API_PREFIX, RESOLVED_CLIENT_HELPER_ID, RESOLVED_PREFIX } from './constants';
 import { normalizePath } from './utils/path';
 
 export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugin {
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
+  const compile = options.compile === true;
   const registry = new Registry();
 
   let root = process.cwd();
@@ -192,12 +193,20 @@ export function serverBuildPlugin(options: ServerBuildPluginOptions = {}): Plugi
       );
       if (!content) return;
 
-      try {
-        const outfile = await compileServer(content, serverOutDir);
-        console.log(`[server-build] Compiled production server to ${normalizePath(relative(root, outfile))}.`);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        this.error(`[server-build] Failed to compile the production server: ${msg}`);
+      const serverSource = writeServerSource(content, serverOutDir);
+      console.log(`[server-build] Wrote production server to ${normalizePath(relative(root, serverSource))}.`);
+
+      if (compile) {
+        try {
+          const outfiles = await compileServer(serverSource, serverOutDir);
+          const relativeOutfiles = outfiles
+            .map((outfile) => normalizePath(relative(root, outfile)))
+            .join(', ');
+          console.log(`[server-build] Compiled production server for ${outfiles.length} targets: ${relativeOutfiles}.`);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.error(`[server-build] Failed to compile the production server: ${msg}`);
+        }
       }
     },
   };

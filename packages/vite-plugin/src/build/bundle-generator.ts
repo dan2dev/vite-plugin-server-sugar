@@ -119,6 +119,7 @@ export function generateBundleContent(
       ? `import * as __serverEntry from '${serverImportPath}';`
       : "import { Hono } from 'hono';",
     "import { dirname, join, resolve } from 'path';",
+    "import { fileURLToPath } from 'url';",
     ...backendImports,
     '',
   ];
@@ -185,7 +186,11 @@ export function generateBundleContent(
     `app.all('${API_PREFIX}*', (c) => c.json({ error: 'Method not allowed' }, 405, { Allow: 'POST' }));`,
     '',
     '// Serve static assets from the client build directory',
-    "const __clientRoot = resolve(dirname(process.execPath), '../client/');",
+    'const __moduleUrl = import.meta.url;',
+    'const __serverRoot = __moduleUrl.startsWith("file:") && !__moduleUrl.includes("$bunfs")',
+    '  ? dirname(fileURLToPath(__moduleUrl))',
+    '  : dirname(process.execPath);',
+    "const __clientRoot = resolve(__serverRoot, '../client/');",
     '',
     'app.use("*", async (c, next) => {',
     '  if (c.req.method !== "GET" && c.req.method !== "HEAD") {',

@@ -29,6 +29,8 @@ export interface ServerBuildPluginOptions {
   port?: number;
   /** Hono app entry point for custom endpoints. */
   serverEntry?: string;
+  /** Compile standalone Bun executables for every supported target. Default: false */
+  compile?: boolean;
 }
 
 export interface FetchApp {

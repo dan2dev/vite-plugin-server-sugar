@@ -54,10 +54,16 @@ describe('Bug Condition: Static file path resolution in generated bundle', () =>
 
   test('generated code imports path utilities (dirname, join, resolve)', () => {
     expect(generatedCode).toContain("import { dirname, join, resolve } from 'path'");
+    expect(generatedCode).toContain("import { fileURLToPath } from 'url'");
   });
 
-  test('generated code uses process.execPath for __clientRoot resolution', () => {
-    expect(generatedCode).toContain('resolve(dirname(process.execPath)');
+  test('generated code uses process.execPath for compiled server root resolution', () => {
+    expect(generatedCode).toContain('dirname(process.execPath)');
+  });
+
+  test('generated code uses import.meta.url only outside Bun compiled executables', () => {
+    expect(generatedCode).toContain('!__moduleUrl.includes("$bunfs")');
+    expect(generatedCode).toContain('dirname(fileURLToPath(__moduleUrl))');
   });
 
   test('generated code does NOT use new URL for client root resolution', () => {
@@ -81,6 +87,7 @@ describe('Bug Condition: Static file path resolution in generated bundle', () =>
 
   test('generated code uses join(__clientRoot, ...) for file path resolution', () => {
     expect(generatedCode).toContain('join(__clientRoot,');
+    expect(generatedCode).toContain("resolve(__serverRoot, '../client/')");
   });
 
   test('generated code contains Cache-Control headers', () => {

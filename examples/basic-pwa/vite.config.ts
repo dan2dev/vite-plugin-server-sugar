@@ -8,6 +8,10 @@ export default defineConfig({
   plugins: [
     react(),
     babel({ presets: [reactCompilerPreset()] }),
-    serverBuildPlugin({ port: 3001, serverEntry: 'src/server.ts' }),
+    serverBuildPlugin({
+      port: 3001,
+      serverEntry: 'src/server.ts',
+      compile: true,
+    }),
   ],
 })
