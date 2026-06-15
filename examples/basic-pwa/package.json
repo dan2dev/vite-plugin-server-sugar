@@ -7,7 +7,7 @@
     "lint": "eslint .",
     "dev": "bunx --bun vite",
     "build": "tsc && bunx --bun vite build",
-    "preview": "bun run build && bun dist/server/server.mts"
+    "preview": "bun run build && bun dist/server/server.mjs"
   },
   "dependencies": {
     "hono": "^4.12.25",

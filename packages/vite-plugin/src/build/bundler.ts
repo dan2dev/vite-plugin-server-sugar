@@ -1,35 +1,43 @@
-import { builtinModules } from 'node:module';
-import { existsSync, mkdirSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { rolldown, type OutputAsset, type OutputChunk } from 'rolldown';
+import { builtinModules } from "node:module";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+  rmSync,
+} from "node:fs";
+import { join } from "node:path";
+import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
 
 interface BunBuildApi {
   build(options: Bun.BuildConfig): Promise<Bun.BuildOutput>;
 }
 
 export const compileTargets = [
-  'bun-darwin-x64',
-  'bun-darwin-arm64',
-  'bun-linux-x64',
-  'bun-linux-arm64',
-  'bun-linux-x64-musl',
-  'bun-linux-arm64-musl',
-  'bun-windows-x64',
-  'bun-windows-arm64',
+  "bun-darwin-x64",
+  "bun-darwin-arm64",
+  "bun-linux-x64",
+  "bun-linux-arm64",
+  "bun-linux-x64-musl",
+  "bun-linux-arm64-musl",
+  "bun-windows-x64",
+  "bun-windows-arm64",
 ] satisfies Bun.Build.CompileTarget[];
 
-const serverSourceFileName = 'server.mts';
-const serverBundleEntryFileName = '.server-build-entry.mts';
+const serverSourceFileName = "server.mjs";
+const serverBundleEntryFileName = ".server-build-entry.mjs";
 const bunCompileArtifactPattern = /^\.[a-f0-9]+-\d+\.bun-build$/;
 const ansiEscapePattern = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const nodeBuiltinModules = new Set([
   ...builtinModules,
-  ...builtinModules.map((name) => name.replace(/^node:/, '')),
-  ...builtinModules.map((name) => `node:${name.replace(/^node:/, '')}`),
+  ...builtinModules.map((name) => name.replace(/^node:/, "")),
+  ...builtinModules.map((name) => `node:${name.replace(/^node:/, "")}`),
 ]);
 
 function bunCompileArtifacts(dir: string): Set<string> {
-  return new Set(readdirSync(dir).filter((name) => bunCompileArtifactPattern.test(name)));
+  return new Set(
+    readdirSync(dir).filter((name) => bunCompileArtifactPattern.test(name)),
+  );
 }
 
 function cleanNewBunCompileArtifacts(dir: string, before: Set<string>): void {
@@ -40,52 +48,71 @@ function cleanNewBunCompileArtifacts(dir: string, before: Set<string>): void {
   }
 }
 
-function executableOutfile(serverOutDir: string, target: Bun.Build.CompileTarget): string {
+function executableOutfile(
+  serverOutDir: string,
+  target: Bun.Build.CompileTarget,
+): string {
   return join(serverOutDir, `server-${target}`);
 }
 
-function emittedOutfile(outfile: string, target: Bun.Build.CompileTarget): string {
+function emittedOutfile(
+  outfile: string,
+  target: Bun.Build.CompileTarget,
+): string {
   const windowsOutfile = `${outfile}.exe`;
-  if (target.startsWith('bun-windows-') && existsSync(windowsOutfile)) {
+  if (target.startsWith("bun-windows-") && existsSync(windowsOutfile)) {
     return windowsOutfile;
   }
 
   return outfile;
 }
 
-export function writeServerSource(source: string, serverOutDir: string): string {
+export function writeServerSource(
+  source: string,
+  serverOutDir: string,
+): string {
   mkdirSync(serverOutDir, { recursive: true });
   const outfile = join(serverOutDir, serverSourceFileName);
-  writeFileSync(outfile, source, 'utf-8');
+  writeFileSync(outfile, source, "utf-8");
   return outfile;
 }
 
 function isRuntimeExternal(id: string): boolean {
-  return id.startsWith('bun:') || nodeBuiltinModules.has(id);
+  return id.startsWith("bun:") || nodeBuiltinModules.has(id);
 }
 
-function isServerEntryFallbackLog(id: string | undefined, message: string): boolean {
-  const normalizedMessage = message.replace(ansiEscapePattern, '');
+function isServerEntryFallbackLog(
+  id: string | undefined,
+  message: string,
+): boolean {
+  const normalizedMessage = message.replace(ansiEscapePattern, "");
 
   return (
     id?.endsWith(serverBundleEntryFileName) === true &&
-    /^\[IMPORT_IS_UNDEFINED\] Import `(default|app)` will always be undefined\b/.test(normalizedMessage)
+    /^\[IMPORT_IS_UNDEFINED\] Import `(default|app)` will always be undefined\b/.test(
+      normalizedMessage,
+    )
   );
 }
 
 function outputChunk(output: Array<OutputChunk | OutputAsset>): OutputChunk {
-  const chunk = output.find((item): item is OutputChunk => item.type === 'chunk');
+  const chunk = output.find(
+    (item): item is OutputChunk => item.type === "chunk",
+  );
   if (!chunk) {
-    throw new Error('[server-build] Rolldown did not produce a server chunk.');
+    throw new Error("[server-build] Rolldown did not produce a server chunk.");
   }
   return chunk;
 }
 
 function stripRolldownSectionComments(code: string): string {
   return code
-    .split('\n')
-    .filter((line) => !line.startsWith('//#region ') && !line.startsWith('//#endregion'))
-    .join('\n');
+    .split("\n")
+    .filter(
+      (line) =>
+        !line.startsWith("//#region ") && !line.startsWith("//#endregion"),
+    )
+    .join("\n");
 }
 
 /**
@@ -102,7 +129,7 @@ export async function bundleServerSource(
 
   const entrypoint = join(serverOutDir, serverBundleEntryFileName);
   const outfile = join(serverOutDir, serverSourceFileName);
-  writeFileSync(entrypoint, source, 'utf-8');
+  writeFileSync(entrypoint, source, "utf-8");
 
   let bundle: Awaited<ReturnType<typeof rolldown>> | null = null;
 
@@ -110,11 +137,11 @@ export async function bundleServerSource(
     bundle = await rolldown({
       input: entrypoint,
       cwd: root,
-      platform: 'node',
+      platform: "node",
       external: (id) => isRuntimeExternal(id),
       onLog(level, log, defaultHandler) {
         if (
-          log.code === 'IMPORT_IS_UNDEFINED' &&
+          log.code === "IMPORT_IS_UNDEFINED" &&
           isServerEntryFallbackLog(log.id ?? log.loc?.file, log.message)
         ) {
           return;
@@ -124,14 +151,14 @@ export async function bundleServerSource(
     });
 
     const { output } = await bundle.generate({
-      format: 'esm',
+      format: "esm",
       sourcemap: false,
       codeSplitting: false,
       comments: false,
-      banner: '// Auto-generated by vite-plugin-server-build - do not edit',
+      banner: "// Auto-generated by vite-plugin-server-build - do not edit",
     });
     const chunk = stripRolldownSectionComments(outputChunk(output).code);
-    writeFileSync(outfile, `${chunk.trimEnd()}\n`, 'utf-8');
+    writeFileSync(outfile, `${chunk.trimEnd()}\n`, "utf-8");
     return outfile;
   } finally {
     if (bundle) await bundle.close();
@@ -147,10 +174,15 @@ export async function bundleServerSource(
  * server output directory so generated imports and runtime asset paths computed
  * relative to that directory resolve to the right files.
  */
-export async function compileServer(entrypoint: string, serverOutDir: string): Promise<string[]> {
+export async function compileServer(
+  entrypoint: string,
+  serverOutDir: string,
+): Promise<string[]> {
   const bun = (globalThis as { Bun?: BunBuildApi }).Bun;
   if (!bun) {
-    throw new Error('Bun.build is required to compile the production server. Run Vite with Bun, e.g. `bunx --bun vite build`.');
+    throw new Error(
+      "Bun.build is required to compile the production server. Run Vite with Bun, e.g. `bunx --bun vite build`.",
+    );
   }
 
   mkdirSync(serverOutDir, { recursive: true });
@@ -165,13 +197,15 @@ export async function compileServer(entrypoint: string, serverOutDir: string): P
         entrypoints: [entrypoint],
         compile: { target, outfile },
         define: {
-          'process.env.NODE_ENV': JSON.stringify('production'),
+          "process.env.NODE_ENV": JSON.stringify("production"),
         },
       });
 
       if (!result.success) {
         for (const log of result.logs) console.error(log);
-        throw new Error(`[server-build] Bun failed to compile the production server for ${target}.`);
+        throw new Error(
+          `[server-build] Bun failed to compile the production server for ${target}.`,
+        );
       }
 
       outfiles.push(emittedOutfile(outfile, target));

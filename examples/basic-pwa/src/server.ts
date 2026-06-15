@@ -1,6 +1,7 @@
-import { Hono } from 'hono'
-const app = new Hono()
+import { Hono } from "hono";
+const app = new Hono();
 
-app.get('/custom', (c) => c.text('hello from custom endpoint!'))
+app.get("/custom", (c) => c.text("hello from custom endpoint!"));
+app.all("*", (_c, next) => next());
 
-export default app
+export default app;
