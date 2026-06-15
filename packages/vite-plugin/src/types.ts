@@ -49,7 +49,10 @@ export interface ServerBuildPluginOptions {
   port?: number;
   /** Hono app entry point for custom endpoints. */
   serverEntry?: string;
-  /** Compile standalone Bun executables for every supported target. Default: false */
+  /**
+   * Compile standalone Bun executables for every supported target. Default: false.
+   * Requires either Bun runtime (`globalThis.Bun`) or `bun` available on PATH.
+   */
   compile?: boolean;
 }
 

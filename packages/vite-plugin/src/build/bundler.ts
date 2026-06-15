@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { builtinModules } from "node:module";
 import {
   existsSync,
@@ -174,16 +175,68 @@ export async function bundleServerSource(
  * server output directory so generated imports and runtime asset paths computed
  * relative to that directory resolve to the right files.
  */
+function compileWithBunCli(
+  entrypoint: string,
+  outfile: string,
+  target: Bun.Build.CompileTarget,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "build",
+      "--compile",
+      `--target=${target}`,
+      `--outfile=${outfile}`,
+      "--define",
+      'process.env.NODE_ENV="production"',
+      entrypoint,
+    ];
+
+    let stderr = "";
+
+    const child = spawn("bun", args, {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        reject(
+          new Error(
+            "Bun is required to compile standalone server binaries, but `bun` was not found in PATH. Install Bun or disable `compile: true`.",
+          ),
+        );
+        return;
+      }
+
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      const details = stderr.trim();
+      reject(
+        new Error(
+          details.length > 0
+            ? `[server-build] Bun CLI failed for ${target}: ${details}`
+            : `[server-build] Bun CLI failed to compile the production server for ${target}.`,
+        ),
+      );
+    });
+  });
+}
+
 export async function compileServer(
   entrypoint: string,
   serverOutDir: string,
 ): Promise<string[]> {
   const bun = (globalThis as { Bun?: BunBuildApi }).Bun;
-  if (!bun) {
-    throw new Error(
-      "Bun.build is required to compile the production server. Run Vite with Bun, e.g. `bunx --bun vite build`.",
-    );
-  }
 
   mkdirSync(serverOutDir, { recursive: true });
   const cwd = process.cwd();
@@ -193,19 +246,24 @@ export async function compileServer(
   try {
     for (const target of compileTargets) {
       const outfile = executableOutfile(serverOutDir, target);
-      const result = await bun.build({
-        entrypoints: [entrypoint],
-        compile: { target, outfile },
-        define: {
-          "process.env.NODE_ENV": JSON.stringify("production"),
-        },
-      });
 
-      if (!result.success) {
-        for (const log of result.logs) console.error(log);
-        throw new Error(
-          `[server-build] Bun failed to compile the production server for ${target}.`,
-        );
+      if (bun) {
+        const result = await bun.build({
+          entrypoints: [entrypoint],
+          compile: { target, outfile },
+          define: {
+            "process.env.NODE_ENV": JSON.stringify("production"),
+          },
+        });
+
+        if (!result.success) {
+          for (const log of result.logs) console.error(log);
+          throw new Error(
+            `[server-build] Bun failed to compile the production server for ${target}.`,
+          );
+        }
+      } else {
+        await compileWithBunCli(entrypoint, outfile, target);
       }
 
       outfiles.push(emittedOutfile(outfile, target));
