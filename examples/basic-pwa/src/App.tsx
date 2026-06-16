@@ -58,7 +58,9 @@ function App() {
   }
 
   async function handleToggle(id: number) {
-    const result = await toggleTodo(id);
+    const result = await toggleTodo(id).catch((e) => {
+      return e;
+    });
     console.log(result);
     setTodos((prev) =>
       prev.map((t) => (t.id === id ? { ...t, done: t.done ? 0 : 1 } : t)),

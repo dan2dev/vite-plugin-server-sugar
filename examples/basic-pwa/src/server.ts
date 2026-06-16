@@ -5,8 +5,9 @@ app.get("/custom", (c) => c.text("hello from custom endpoint!"));
 let tootlePAss = 0;
 app.all("*", (c, next) => {
   console.log("Request received");
-  if (tootlePAss > 70) {
-    return c.json({ message: "Not found!!!" }, 404);
+  if (tootlePAss > 80) {
+    c.status(500);
+    return c.json({ message: "Not found!!!" });
   }
   tootlePAss++;
   return next();

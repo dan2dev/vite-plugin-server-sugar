@@ -223,8 +223,18 @@ export function serverBuildPlugin(
               });
             }
 
-            const response = await app.fetch(await nodeRequestToWeb(req));
-            if (response.status === 404) return next();
+            const webRequest = await nodeRequestToWeb(req);
+            const pathname = new URL(webRequest.url).pathname;
+            const response = await app.fetch(webRequest);
+
+            // For backend API paths the Hono app is the authority;
+            // always write its response (including 404s).  For other
+            // paths, a 404 means Hono didn't handle the request so we
+            // fall through to Vite's internal middleware (source files,
+            // HMR, etc.).
+            if (response.status === 404 && !pathname.startsWith(API_PREFIX)) {
+              return next();
+            }
 
             await writeWebResponse(res, response);
           } catch (e) {
