@@ -1,43 +1,49 @@
 import { db } from "./db";
 
 export interface Todo {
-	id: number;
-	text: string;
-	done: number;
-	created_at: number;
+  id: number;
+  text: string;
+  done: number;
+  created_at: number;
 }
 
 const state = {
-	count1: 0,
-	get name() {
-		console.log("state getName server", this.count1);
-		return "danilo1";
-	},
+  count1: 0,
+  get name() {
+    console.log("state getName server", this.count1);
+    return "danilo1";
+  },
 };
 // console.log(state.name);
 
 export const getTodos = backend(async () => {
-	return db.query<Todo, []>("SELECT * FROM todos ORDER BY created_at DESC").all();
+  console.log("getTodos ------------------");
+  return db
+    .query<Todo, []>("SELECT * FROM todos ORDER BY created_at DESC")
+    .all();
 });
 
 export const getSomeData = backend(async () => {
-	state.count1 += 1;
-	const todos = await getTodos();
-	return {
-		count: state.count1,
-		name: state.name,
-		todos: todos,
-	};
+  state.count1 += 1;
+  const todos = await getTodos();
+  return {
+    count: state.count1,
+    name: state.name,
+    todos: todos,
+  };
 });
 
 export const addTodo = backend(async (text: string) => {
-	return db.query<Todo, [string]>("INSERT INTO todos (text) VALUES (?) RETURNING *").get(text)!;
+  return db
+    .query<Todo, [string]>("INSERT INTO todos (text) VALUES (?) RETURNING *")
+    .get(text)!;
 });
 
 export const toggleTodo = backend(async (id: number) => {
-	db.query("UPDATE todos SET done = 1 - done WHERE id = ?").run(id);
+  console.log("toggleTodo", id);
+  db.query("UPDATE todos SET done = 1 - done WHERE id = ?").run(id);
 });
 
 export const deleteTodo = backend(async (id: number) => {
-	db.query("DELETE FROM todos WHERE id = ?").run(id);
+  db.query("DELETE FROM todos WHERE id = ?").run(id);
 });
