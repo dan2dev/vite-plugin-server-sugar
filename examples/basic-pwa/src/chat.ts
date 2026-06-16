@@ -21,7 +21,13 @@ const connections = new Set<ChatSocket>();
 const history: string[] = [];
 
 export const getChatHistory = backend(async () => {
-  chat.send({ message: "someone requested chat history", name: "server" });
+  chat.send({
+    message: "[testing] someone requested chat history",
+    name: "server",
+  });
+  for (const conn of connections) {
+    conn.send({ message: "[testing] someone joined", name: "server" });
+  }
   return history;
 });
 
