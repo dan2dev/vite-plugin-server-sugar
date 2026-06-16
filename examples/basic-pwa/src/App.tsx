@@ -47,7 +47,7 @@ function Chat() {
     e.preventDefault();
     const text = input.trim();
     if (!text) return;
-    connRef.current?.send({ message: text });
+    connRef.current?.send({ message: text, name: "someName" });
     setInput("");
   }
 

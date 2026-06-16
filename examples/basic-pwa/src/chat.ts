@@ -5,12 +5,14 @@
 // Client -> server: what a connected client sends over the wire.
 interface ChatMessage {
   message: string;
+  name: string;
 }
 
 // Server -> client: what every connection receives, including broadcasts
 // from the sibling getChatHistory() backend() handler below.
 interface ChatBroadcast {
   message: string;
+  name: string;
 }
 
 type ChatSocket = ServerWebSocket<ChatBroadcast>;
@@ -19,7 +21,7 @@ const connections = new Set<ChatSocket>();
 const history: string[] = [];
 
 export const getChatHistory = backend(async () => {
-  chat.send({ message: "someone requested chat history" });
+  chat.send({ message: "someone requested chat history", name: "server" });
   return history;
 });
 
