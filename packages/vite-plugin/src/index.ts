@@ -27,6 +27,7 @@ import {
   RESOLVED_CLIENT_HELPER_ID,
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
+  VIRTUAL_PREFIX,
 } from "./constants";
 import { normalizePath } from "./utils/path";
 
@@ -138,29 +139,13 @@ export function serverBuildPlugin(
         );
       }
 
-      server.middlewares.use(async (req, res, next) => {
-        const pathname = requestUrl(req).pathname;
-        if (!pathname.startsWith(API_PREFIX)) return next();
-
-        let endpoint: string;
-        try {
-          endpoint = decodeURIComponent(pathname.slice(API_PREFIX.length));
-        } catch {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Bad request" }));
-          return;
-        }
-
-        await handleGeneratedBackendRequest(
-          server,
-          req,
-          res,
-          endpoint,
-          registry,
-        );
-      });
-
       if (serverEntry) {
+        // Track Hono app instances that have already been augmented with
+        // backend routes so we don't re-register on every request. When HMR
+        // invalidates the server entry, a new app instance is created and
+        // routes are re-registered automatically.
+        const augmentedApps = new WeakSet<object>();
+
         server.middlewares.use(async (req, res, next) => {
           try {
             const app = await loadServerApp(
@@ -170,6 +155,74 @@ export function serverBuildPlugin(
             );
             if (!app) return next();
 
+            // Dynamically register backend routes on the user's Hono app so
+            // that user-defined middleware (e.g. app.all("*", ...)) also runs
+            // for backend requests, matching the production build behaviour.
+            if (!augmentedApps.has(app as object)) {
+              augmentedApps.add(app as object);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const hono = app as any;
+
+              hono.post(`${API_PREFIX}*`, async (c: any) => {
+                const url = new URL(c.req.url);
+                let endpoint: string;
+                try {
+                  endpoint = decodeURIComponent(
+                    url.pathname.slice(API_PREFIX.length),
+                  );
+                } catch {
+                  return c.json({ error: "Bad request" }, 400);
+                }
+
+                if (!registry.has(endpoint)) {
+                  return c.json(
+                    {
+                      error: `No backend handler registered: '${endpoint}'`,
+                    },
+                    404,
+                  );
+                }
+
+                try {
+                  const contentType = c.req.header("content-type");
+                  if (
+                    contentType &&
+                    !contentType.toLowerCase().includes("application/json")
+                  ) {
+                    return c.json({ error: "Unsupported media type" }, 415);
+                  }
+
+                  const rawBody = await c.req.text();
+                  const body = rawBody.trim();
+                  const payload = body ? JSON.parse(body) : [];
+                  const args = Array.isArray(payload) ? payload : [payload];
+
+                  const mod = await server.ssrLoadModule(
+                    VIRTUAL_PREFIX + endpoint,
+                  );
+                  const fn = mod.default as (...args: unknown[]) => unknown;
+                  const result = await fn(...args);
+
+                  if (result === undefined) {
+                    return c.body(null, 204);
+                  }
+                  return c.json(result);
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  console.error(
+                    `[server-build] Error in handler '${endpoint}': ${msg}`,
+                  );
+                  return c.json({ error: msg }, 500);
+                }
+              });
+
+              hono.all(`${API_PREFIX}*`, (c: any) => {
+                return c.json({ error: "Method not allowed" }, 405, {
+                  Allow: "POST",
+                });
+              });
+            }
+
             const response = await app.fetch(await nodeRequestToWeb(req));
             if (response.status === 404) return next();
 
@@ -177,9 +230,35 @@ export function serverBuildPlugin(
           } catch (e) {
             if (e instanceof Error) server.ssrFixStacktrace(e);
             const msg = e instanceof Error ? e.message : String(e);
-            res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+            res.writeHead(500, {
+              "Content-Type": "text/plain; charset=utf-8",
+            });
             res.end(msg);
           }
+        });
+      } else {
+        // No server entry: handle backend requests directly in middleware
+        // (no user Hono app to route them through).
+        server.middlewares.use(async (req, res, next) => {
+          const pathname = requestUrl(req).pathname;
+          if (!pathname.startsWith(API_PREFIX)) return next();
+
+          let endpoint: string;
+          try {
+            endpoint = decodeURIComponent(pathname.slice(API_PREFIX.length));
+          } catch {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Bad request" }));
+            return;
+          }
+
+          await handleGeneratedBackendRequest(
+            server,
+            req,
+            res,
+            endpoint,
+            registry,
+          );
         });
       }
 

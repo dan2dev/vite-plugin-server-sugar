@@ -9,23 +9,21 @@ import {
 } from "./todos";
 import type { Todo } from "./todos";
 
-
 const globalState = {
-	count1: 0,
-	get name() {
-		console.log("globalState getName", this.count1)
-		return "danilo2";
-	},
+  count1: 0,
+  get name() {
+    console.log("globalState getName", this.count1);
+    return "danilo2";
+  },
 };
 
 const getSomeData2 = backend(async () => {
-	globalState.count1 += 1;
-	return {
-		count: globalState.count1,
-		name: globalState.name,
-	};
+  globalState.count1 += 1;
+  return {
+    count: globalState.count1,
+    name: globalState.name,
+  };
 });
-
 
 function App() {
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -33,16 +31,16 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [state, setState] = useState<{ count: number; name: string }>({
-		count: 0,
-		// name: '',
-    name: globalState.name
+    count: 0,
+    // name: '',
+    name: globalState.name,
   });
 
   useEffect(() => {
     Promise.all([
       getTodos().then(setTodos),
-			getSomeData().then(setState),
-			getSomeData2().then(setState),
+      getSomeData().then(setState),
+      getSomeData2().then(setState),
     ]).finally(() => {
       setLoading(false);
     });
@@ -60,7 +58,8 @@ function App() {
   }
 
   async function handleToggle(id: number) {
-    await toggleTodo(id);
+    const result = await toggleTodo(id);
+    console.log(result);
     setTodos((prev) =>
       prev.map((t) => (t.id === id ? { ...t, done: t.done ? 0 : 1 } : t)),
     );
@@ -76,7 +75,9 @@ function App() {
       <h1>Todos</h1>
 
       <form onSubmit={handleAdd} className="todo-form">
-				<h2>{state.count} - {state.name}</h2>
+        <h2>
+          {state.count} - {state.name}
+        </h2>
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
