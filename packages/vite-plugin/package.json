@@ -43,6 +43,10 @@
     "build": "tsdown && cp backend.d.ts dist/backend.d.ts && cp websocket.d.ts dist/websocket.d.ts",
     "build:watch": "tsdown --watch",
     "dev": "tsdown --watch",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage",
+    "test:types": "vitest typecheck --run",
     "typecheck": "tsc --noEmit",
     "release": "bumpp",
     "prepare": "bun run build",
@@ -59,9 +63,12 @@
   "devDependencies": {
     "@types/node": "^22.19.21",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "bumpp": "^11.1.0",
     "bun-types": "^1.3.14",
+    "fast-check": "^4.8.0",
     "tsdown": "^0.22.2",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   }
 }
