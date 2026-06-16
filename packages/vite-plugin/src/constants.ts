@@ -17,3 +17,12 @@ export const CLIENT_WS_HELPER_ID = "virtual:server-build/websocket-connect";
 export const RESOLVED_CLIENT_WS_HELPER_ID =
   "\0virtual:server-build/websocket-connect";
 export const CLIENT_WS_CONNECT_EXPORT = "__websocketConnect";
+
+// Dev mode runs the per-file virtual module (which defines each websocket()
+// handler) and the Vite HTTP upgrade handler (dev-server/ws-upgrade.ts) as
+// separate module instances. Both sides reach the same connection-tracking
+// Map by storing it under this key on `globalThis` (lazily created by
+// whichever side runs first) so `chat.send(...)` can broadcast to sockets
+// registered by the upgrade handler. The production bundle is a single
+// generated file, so it tracks connections with a plain top-level Map instead.
+export const WS_RUNTIME_GLOBAL_KEY = "__server_build_ws_connections__";

@@ -4,7 +4,7 @@ import type { ViteDevServer } from "vite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { Registry } from "../core/registry";
 import type { WebSocketEntry } from "../types";
-import { VIRTUAL_WS_PREFIX, WS_API_PREFIX } from "../constants";
+import { VIRTUAL_WS_PREFIX, WS_API_PREFIX, WS_RUNTIME_GLOBAL_KEY } from "../constants";
 import { requestUrl } from "./middleware";
 
 type ServerWebSocket = WebSocket & { args: unknown[] };
@@ -23,6 +23,20 @@ function parseArgs(raw: string | null): unknown[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Same registry the generated virtual module reads from (see
+ * dev-server/virtual-modules.ts) so a `<name>.send(data)` call broadcasts to
+ * sockets registered here. Shared via `globalThis` since the two run as
+ * separate module instances.
+ */
+function wsConnections(): Map<string, Set<ServerWebSocket>> {
+  const g = globalThis as Record<string, unknown>;
+  return (g[WS_RUNTIME_GLOBAL_KEY] ??= new Map()) as Map<
+    string,
+    Set<ServerWebSocket>
+  >;
 }
 
 /**
@@ -76,6 +90,21 @@ export function setupWebsocketUpgrade(
             rawSocket.send = ((data: unknown) =>
               rawSend(JSON.stringify(data))) as typeof rawSocket.send;
 
+            const conns = wsConnections();
+            let endpointConns = conns.get(endpoint);
+            if (!endpointConns) {
+              endpointConns = new Set();
+              conns.set(endpoint, endpointConns);
+            }
+            endpointConns.add(ws);
+
+            // Wired before onOpen() runs so the socket is still untracked on
+            // close even if onOpen() throws (the catch below closes it).
+            rawSocket.on("close", () => {
+              wsConnections().get(endpoint)?.delete(ws);
+              handlers.onClose?.(ws);
+            });
+
             handlers.onOpen?.(ws);
 
             rawSocket.on("message", (raw: Buffer) => {
@@ -86,10 +115,6 @@ export function setupWebsocketUpgrade(
                 data = raw.toString();
               }
               handlers.onMessage?.(ws, data);
-            });
-
-            rawSocket.on("close", () => {
-              handlers.onClose?.(ws);
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

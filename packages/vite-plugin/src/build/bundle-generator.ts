@@ -159,6 +159,25 @@ export function generateBundleContent(
     );
   }
 
+  if (hasWebsocket) {
+    lines.push(
+      "// Tracks open sockets per websocket() endpoint so a sibling",
+      "// backend()/websocket() handler can broadcast via `<name>.send(data)`.",
+      "const __wsConnections = new Map();",
+      "function __wrapWs(endpoint, handlers) {",
+      "  return {",
+      "    ...handlers,",
+      "    send(data) {",
+      "      const conns = __wsConnections.get(endpoint);",
+      "      if (!conns) return;",
+      "      for (const ws of conns) ws.send(data);",
+      "    },",
+      "  };",
+      "}",
+      "",
+    );
+  }
+
   // Group entries by source file so module-level declarations (e.g. `const
   // state = {}`) are shared across all handlers from the same file —
   // including across backend() and websocket() handlers in the same file.
@@ -195,6 +214,10 @@ export function generateBundleContent(
         : `((${locals.join(", ")}) => (${exprJs}))(${aliases.join(", ")})`;
     }
 
+    function wsHandlerExpr(entry: { endpoint: string }, exprJs: string): string {
+      return `__wrapWs(${JSON.stringify(entry.endpoint)}, ${handlerExpr(entry, exprJs)})`;
+    }
+
     if (!useIIFE) {
       // No module-level state and no sibling cross-refs: emit each handler individually.
       for (const entry of fileBackend) {
@@ -204,7 +227,7 @@ export function generateBundleContent(
       for (const entry of fileWs) {
         const constName = websocketConstName(entry.endpoint);
         lines.push(
-          `const ${constName} = ${handlerExpr(entry, entry.handlersJs)};`,
+          `const ${constName} = ${wsHandlerExpr(entry, entry.handlersJs)};`,
           "",
         );
       }
@@ -233,7 +256,7 @@ export function generateBundleContent(
         const constName = websocketConstName(entry.endpoint);
         const localName = entry.originalName ?? constName;
         lines.push(
-          `  const ${localName} = ${handlerExpr(entry, entry.handlersJs)};`,
+          `  const ${localName} = ${wsHandlerExpr(entry, entry.handlersJs)};`,
         );
       }
 
@@ -421,6 +444,12 @@ export function generateBundleContent(
       "      ws.args = ws.data.args;",
       "      const __send = ws.send.bind(ws);",
       "      ws.send = (data) => __send(JSON.stringify(data));",
+      "      let __conns = __wsConnections.get(ws.data.endpoint);",
+      "      if (!__conns) {",
+      "        __conns = new Set();",
+      "        __wsConnections.set(ws.data.endpoint, __conns);",
+      "      }",
+      "      __conns.add(ws);",
       "      __websocketHandlers[ws.data.endpoint]?.onOpen?.(ws);",
       "    },",
       "    message(ws, raw) {",
@@ -433,6 +462,7 @@ export function generateBundleContent(
       "      __websocketHandlers[ws.data.endpoint]?.onMessage?.(ws, data);",
       "    },",
       "    close(ws) {",
+      "      __wsConnections.get(ws.data.endpoint)?.delete(ws);",
       "      __websocketHandlers[ws.data.endpoint]?.onClose?.(ws);",
       "    },",
       "  },",

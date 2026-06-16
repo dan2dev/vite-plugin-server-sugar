@@ -15,6 +15,7 @@ import {
   VIRTUAL_FILE_PREFIX,
   VIRTUAL_PREFIX,
   VIRTUAL_WS_PREFIX,
+  WS_RUNTIME_GLOBAL_KEY,
 } from "../constants";
 import { backendConstName, websocketConstName } from "../utils/crypto";
 import { isRelativeImport, normalizePath, toImportPath } from "../utils/path";
@@ -145,13 +146,34 @@ function combinedFileModuleCode(
   const lines: string[] = [];
   if (importLines.length > 0) lines.push(...importLines, "");
 
+  if (wsEntries.length > 0) {
+    // Dev mode loads this virtual module and dev-server/ws-upgrade.ts (which
+    // performs the actual HTTP upgrade) as separate module instances, so the
+    // open-connection registry lives on `globalThis` under a shared key —
+    // whichever side runs first creates it, the other reuses it.
+    lines.push(
+      `const __wsConnections = (globalThis[${JSON.stringify(WS_RUNTIME_GLOBAL_KEY)}] ??= new Map());`,
+      `function __wrapWs(endpoint, handlers) {`,
+      `  return {`,
+      `    ...handlers,`,
+      `    send(data) {`,
+      `      const conns = __wsConnections.get(endpoint);`,
+      `      if (!conns) return;`,
+      `      for (const ws of conns) ws.send(data);`,
+      `    },`,
+      `  };`,
+      `}`,
+      "",
+    );
+  }
+
   if (!useIIFE) {
     for (const entry of backendEntries) {
       lines.push(`const ${backendConstName(entry.endpoint)} = ${entry.fnJs};`);
     }
     for (const entry of wsEntries) {
       lines.push(
-        `const ${websocketConstName(entry.endpoint)} = ${entry.handlersJs};`,
+        `const ${websocketConstName(entry.endpoint)} = __wrapWs(${JSON.stringify(entry.endpoint)}, ${entry.handlersJs});`,
       );
     }
   } else {
@@ -171,7 +193,9 @@ function combinedFileModuleCode(
     for (const entry of wsEntries) {
       const constName = websocketConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
-      lines.push(`  const ${localName} = ${entry.handlersJs};`);
+      lines.push(
+        `  const ${localName} = __wrapWs(${JSON.stringify(entry.endpoint)}, ${entry.handlersJs});`,
+      );
     }
 
     lines.push("  return {");

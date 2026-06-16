@@ -10,6 +10,12 @@
  * `ws.args` inside every handler for the lifetime of that connection (e.g.
  * for passing an auth token).
  *
+ * The value returned by `websocket()` has the same type signature wherever
+ * it's referenced. On the client, call `.connect()` to open a connection. On
+ * the server, call `.send()` from any sibling `backend()`/`websocket()`
+ * handler in the same file to broadcast JSON-serializable data to every
+ * currently open connection for this endpoint.
+ *
  * @example
  *   export const chat = websocket({
  *     onOpen(ws) {
@@ -19,6 +25,11 @@
  *       ws.send({ echo: data });
  *     },
  *     onClose(ws) {},
+ *   });
+ *
+ *   // server: broadcast to every connected client from a sibling backend() handler
+ *   export const announce = backend(async (message: string) => {
+ *     chat.send({ message });
  *   });
  *
  *   // client:
@@ -55,4 +66,13 @@ interface WebSocketConnection {
 
 declare function websocket(
   handlers: WebSocketHandlers,
-): { connect(...args: unknown[]): WebSocketConnection };
+): {
+  /** Client: opens a new connection to this endpoint. */
+  connect(...args: unknown[]): WebSocketConnection;
+  /**
+   * Server: serializes `data` to JSON and broadcasts it to every currently
+   * open connection for this endpoint. Call from a sibling `backend()` or
+   * `websocket()` handler in the same file.
+   */
+  send(data: unknown): void;
+};

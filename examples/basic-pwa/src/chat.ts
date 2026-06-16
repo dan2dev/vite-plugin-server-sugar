@@ -4,14 +4,20 @@
 const connections = new Set<ServerWebSocket>();
 const history: string[] = [];
 
-export const getChatHistory = backend(async () => history);
+export const getChatHistory = backend(async () => {
+  chat.send({ message: "someone requested chat history" });
+  return history;
+});
 
 export const chat = websocket({
   onOpen(ws) {
     connections.add(ws);
   },
-  onMessage(_ws, data) {
+  onMessage(ws, data) {
+    console.log(ws);
     const message = String(data);
+    console.log(`-------------onMessage`);
+    console.log(data);
     history.push(message);
     for (const conn of connections) {
       conn.send({ message });
