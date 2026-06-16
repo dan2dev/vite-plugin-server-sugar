@@ -37,8 +37,7 @@ function Chat() {
     getChatHistory().then(setMessages);
     const conn = chat.connect();
     connRef.current = conn;
-    conn.onMessage((data) => {
-      const { message } = data as { message: string };
+    conn.onMessage(({ message }) => {
       setMessages((prev) => [...prev, message]);
     });
     return () => conn.close();
@@ -48,7 +47,7 @@ function Chat() {
     e.preventDefault();
     const text = input.trim();
     if (!text) return;
-    connRef.current?.send(text);
+    connRef.current?.send({ message: text });
     setInput("");
   }
 

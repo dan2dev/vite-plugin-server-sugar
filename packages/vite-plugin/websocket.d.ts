@@ -16,47 +16,71 @@
  * handler in the same file to broadcast JSON-serializable data to every
  * currently open connection for this endpoint.
  *
+ * Just like `backend()` infers `Args`/`R` from the function you pass it,
+ * `websocket()` infers its message types from the handlers you pass it — no
+ * explicit type arguments needed for the common case:
+ *
  * @example
+ *   interface ChatMessage { text: string }
+ *   interface ChatBroadcast { text: string; from: string }
+ *
  *   export const chat = websocket({
- *     onOpen(ws) {
+ *     // `data` annotated -> inferred as the client-to-server message type.
+ *     // `ws` annotated -> inferred as the server-to-client message type.
+ *     onOpen(ws: ServerWebSocket<ChatBroadcast>) {
  *       console.log("connected with args", ws.args);
  *     },
- *     onMessage(ws, data) {
- *       ws.send({ echo: data });
+ *     onMessage(ws: ServerWebSocket<ChatBroadcast>, data: ChatMessage) {
+ *       ws.send({ text: data.text, from: "server" });
  *     },
- *     onClose(ws) {},
+ *     onClose(ws: ServerWebSocket<ChatBroadcast>) {},
  *   });
  *
  *   // server: broadcast to every connected client from a sibling backend() handler
- *   export const announce = backend(async (message: string) => {
- *     chat.send({ message });
+ *   export const announce = backend(async (text: string) => {
+ *     chat.send({ text, from: "server" });
  *   });
  *
- *   // client:
+ *   // client: connect()/send()/onMessage() are typed from the inference above
  *   const conn = chat.connect(authToken);
- *   conn.onMessage((data) => console.log(data));
- *   conn.send({ hello: "world" });
+ *   conn.onMessage((data) => console.log(data.text, data.from));
+ *   conn.send({ text: "hello" });
+ *
+ * Leaving handlers unannotated keeps the previous untyped behavior (`unknown`).
+ * To type `connect()`'s arguments (and therefore `ws.args`), either annotate
+ * `ws: ServerWebSocket<TServerToClient, TConnectArgs>` or pass explicit type
+ * arguments: `websocket<ChatMessage, ChatBroadcast, [authToken: string]>({...})`.
  */
-interface ServerWebSocket {
+interface ServerWebSocket<
+  TServerToClient = unknown,
+  TConnectArgs extends unknown[] = unknown[],
+> {
   /** Arguments passed to `connect(...)` on the client for this connection. */
-  args: unknown[];
+  args: TConnectArgs;
   /** Serializes `data` to JSON and sends it to the client. */
-  send(data: unknown): void;
+  send(data: TServerToClient): void;
   /** Closes the connection. */
   close(code?: number, reason?: string): void;
 }
 
-interface WebSocketHandlers {
-  onOpen?(ws: ServerWebSocket): void;
-  onMessage?(ws: ServerWebSocket, data: unknown): void;
-  onClose?(ws: ServerWebSocket): void;
+interface WebSocketHandlers<
+  TClientToServer = unknown,
+  TServerToClient = TClientToServer,
+  TConnectArgs extends unknown[] = unknown[],
+> {
+  onOpen?(ws: ServerWebSocket<TServerToClient, TConnectArgs>): void;
+  onMessage?(
+    ws: ServerWebSocket<TServerToClient, TConnectArgs>,
+    data: TClientToServer,
+  ): void;
+  onClose?(ws: ServerWebSocket<TServerToClient, TConnectArgs>): void;
 }
 
-interface WebSocketConnection {
+interface WebSocketConnection<TClientToServer = unknown, TServerToClient = TClientToServer> {
   /** Sends JSON-serializable `data` to the server over the connection. */
-  send(data: unknown): void;
+  send(data: TClientToServer): void;
   /** Registers a callback invoked with each JSON-deserialized message from the server. */
-  onMessage(callback: (data: unknown) => void): void;
+  onMessage(callback: (data: TServerToClient) => void): void;
   /** Registers a callback invoked when the connection closes. */
   onClose(callback: (event: CloseEvent) => void): void;
   /** Closes the connection. */
@@ -64,15 +88,19 @@ interface WebSocketConnection {
   readonly readyState: number;
 }
 
-declare function websocket(
-  handlers: WebSocketHandlers,
+declare function websocket<
+  TClientToServer = unknown,
+  TServerToClient = TClientToServer,
+  TConnectArgs extends unknown[] = unknown[],
+>(
+  handlers: WebSocketHandlers<TClientToServer, TServerToClient, TConnectArgs>,
 ): {
   /** Client: opens a new connection to this endpoint. */
-  connect(...args: unknown[]): WebSocketConnection;
+  connect(...args: TConnectArgs): WebSocketConnection<TClientToServer, TServerToClient>;
   /**
    * Server: serializes `data` to JSON and broadcasts it to every currently
    * open connection for this endpoint. Call from a sibling `backend()` or
    * `websocket()` handler in the same file.
    */
-  send(data: unknown): void;
+  send(data: TServerToClient): void;
 };
