@@ -3,11 +3,13 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
 
 import type { ServerBuildPluginOptions } from "./types";
+import type { BackendEntry, WebSocketEntry } from "./types";
 import { Registry } from "./core/registry";
 import { processFile } from "./core/processor";
 import {
   invalidateBackendFileModules,
   invalidateBackendModules,
+  invalidateWebsocketModules,
 } from "./dev-server/hmr";
 import {
   handleGeneratedBackendRequest,
@@ -20,13 +22,16 @@ import {
   loadVirtualModule,
   resolveVirtualId,
 } from "./dev-server/virtual-modules";
+import { setupWebsocketUpgrade } from "./dev-server/ws-upgrade";
 import { generateBundleContent } from "./build/bundle-generator";
 import { bundleServerSource, compileServer } from "./build/bundler";
 import {
   API_PREFIX,
   RESOLVED_CLIENT_HELPER_ID,
+  RESOLVED_CLIENT_WS_HELPER_ID,
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
+  RESOLVED_WS_PREFIX,
   VIRTUAL_PREFIX,
 } from "./constants";
 import { normalizePath } from "./utils/path";
@@ -37,7 +42,8 @@ export function serverBuildPlugin(
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
   const compile = options.compile === true;
-  const registry = new Registry();
+  const registry = new Registry<BackendEntry>();
+  const wsRegistry = new Registry<WebSocketEntry>();
 
   let root = process.cwd();
   let distOutDir = resolve(root, "dist");
@@ -87,7 +93,12 @@ export function serverBuildPlugin(
         !entry.name.endsWith(".d.ts")
       ) {
         const code = readFileSync(full, "utf-8");
-        processFile(code, full, { registry, root, emitWarnings: true });
+        processFile(code, full, {
+          registry,
+          wsRegistry,
+          root,
+          emitWarnings: true,
+        });
       }
     }
   }
@@ -115,10 +126,16 @@ export function serverBuildPlugin(
 
     buildStart() {
       registry.clear();
+      wsRegistry.clear();
       scanDir(root);
       if (registry.size > 0) {
         console.log(
           `[server-build] Registered ${registry.size} backend endpoints.`,
+        );
+      }
+      if (wsRegistry.size > 0) {
+        console.log(
+          `[server-build] Registered ${wsRegistry.size} websocket endpoints.`,
         );
       }
     },
@@ -128,7 +145,7 @@ export function serverBuildPlugin(
     },
 
     load(id) {
-      return loadVirtualModule(id, registry);
+      return loadVirtualModule(id, registry, wsRegistry);
     },
 
     configureServer(server: ViteDevServer) {
@@ -138,6 +155,13 @@ export function serverBuildPlugin(
           `[server-build] Dev server ready with ${registry.size} endpoints.`,
         );
       }
+      if (wsRegistry.size > 0) {
+        console.log(
+          `[server-build] Dev server ready with ${wsRegistry.size} websocket endpoints.`,
+        );
+      }
+
+      setupWebsocketUpgrade(server, wsRegistry);
 
       if (serverEntry) {
         // Track Hono app instances that have already been augmented with
@@ -275,17 +299,29 @@ export function serverBuildPlugin(
       server.watcher.on("change", (file) => {
         if (/\.(tsx?)$/.test(file) && !file.endsWith(".d.ts")) {
           const previousEndpoints = registry.getEndpointsForFile(file);
+          const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
           try {
             const code = readFileSync(file, "utf-8");
-            processFile(code, file, { registry, root, emitWarnings: true });
+            processFile(code, file, {
+              registry,
+              wsRegistry,
+              root,
+              emitWarnings: true,
+            });
             invalidateBackendModules(server, [
               ...previousEndpoints,
               ...registry.getEndpointsForFile(file),
             ]);
+            invalidateWebsocketModules(server, [
+              ...previousWsEndpoints,
+              ...wsRegistry.getEndpointsForFile(file),
+            ]);
             invalidateBackendFileModules(server, [file]);
           } catch {
             registry.unregisterFile(file);
+            wsRegistry.unregisterFile(file);
             invalidateBackendModules(server, previousEndpoints);
+            invalidateWebsocketModules(server, previousWsEndpoints);
             invalidateBackendFileModules(server, [file]);
           }
         }
@@ -293,8 +329,11 @@ export function serverBuildPlugin(
 
       server.watcher.on("unlink", (file) => {
         const previousEndpoints = registry.getEndpointsForFile(file);
+        const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
         registry.unregisterFile(file);
+        wsRegistry.unregisterFile(file);
         invalidateBackendModules(server, previousEndpoints);
+        invalidateWebsocketModules(server, previousWsEndpoints);
         invalidateBackendFileModules(server, [file]);
       });
     },
@@ -303,13 +342,15 @@ export function serverBuildPlugin(
       if (
         id.includes("node_modules") ||
         id.startsWith(RESOLVED_PREFIX) ||
+        id.startsWith(RESOLVED_WS_PREFIX) ||
         id.startsWith(RESOLVED_FILE_PREFIX) ||
-        id === RESOLVED_CLIENT_HELPER_ID
+        id === RESOLVED_CLIENT_HELPER_ID ||
+        id === RESOLVED_CLIENT_WS_HELPER_ID
       ) {
         return null;
       }
 
-      return processFile(code, id, { registry, root });
+      return processFile(code, id, { registry, wsRegistry, root });
     },
 
     async writeBundle() {
@@ -323,6 +364,7 @@ export function serverBuildPlugin(
         serverOutDir,
         clientOutDir,
         port,
+        wsRegistry,
       );
       if (!content) return;
 

@@ -1,9 +1,17 @@
 import type { ViteDevServer } from "vite";
 import type { InvalidationGraph } from "../types";
-import { RESOLVED_FILE_PREFIX, RESOLVED_PREFIX } from "../constants";
+import {
+  RESOLVED_FILE_PREFIX,
+  RESOLVED_PREFIX,
+  RESOLVED_WS_PREFIX,
+} from "../constants";
 
 function virtualBackendId(endpoint: string): string {
   return RESOLVED_PREFIX + endpoint;
+}
+
+function virtualWebsocketId(endpoint: string): string {
+  return RESOLVED_WS_PREFIX + endpoint;
 }
 
 function virtualBackendFileId(file: string): string {
@@ -66,6 +74,35 @@ export function invalidateBackendModules(
   const timestamp = Date.now();
   for (const graph of moduleGraphs(server)) {
     invalidateBackendModulesInGraph(graph, uniqueEndpoints, timestamp);
+  }
+}
+
+function invalidateWebsocketModulesInGraph<TModule>(
+  graph: InvalidationGraph<TModule> | undefined,
+  endpoints: string[],
+  timestamp: number,
+): void {
+  if (!graph) return;
+
+  const seen = new Set<TModule>();
+  for (const endpoint of endpoints) {
+    const mod = graph.getModuleById(virtualWebsocketId(endpoint));
+    if (mod) {
+      graph.invalidateModule(mod, seen, timestamp, true);
+    }
+  }
+}
+
+export function invalidateWebsocketModules(
+  server: ViteDevServer,
+  endpoints: Iterable<string>,
+): void {
+  const uniqueEndpoints = [...new Set(endpoints)];
+  if (uniqueEndpoints.length === 0) return;
+
+  const timestamp = Date.now();
+  for (const graph of moduleGraphs(server)) {
+    invalidateWebsocketModulesInGraph(graph, uniqueEndpoints, timestamp);
   }
 }
 

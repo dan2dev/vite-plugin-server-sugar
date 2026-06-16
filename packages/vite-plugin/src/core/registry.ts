@@ -1,14 +1,14 @@
 import type { BackendEntry } from '../types';
 
-export class Registry {
-  private registry = new Map<string, BackendEntry>();
+export class Registry<T extends { file: string } = BackendEntry> {
+  private registry = new Map<string, T>();
   private entriesByFile = new Map<string, Set<string>>();
 
-  get(endpoint: string): BackendEntry | undefined {
+  get(endpoint: string): T | undefined {
     return this.registry.get(endpoint);
   }
 
-  set(endpoint: string, entry: BackendEntry): void {
+  set(endpoint: string, entry: T): void {
     this.registry.set(endpoint, entry);
   }
 
@@ -20,7 +20,7 @@ export class Registry {
     return this.registry.has(endpoint);
   }
 
-  values(): IterableIterator<BackendEntry> {
+  values(): IterableIterator<T> {
     return this.registry.values();
   }
 

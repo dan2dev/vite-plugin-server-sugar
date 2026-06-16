@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./App.css";
 import {
   getTodos,
@@ -8,6 +8,7 @@ import {
   getSomeData,
 } from "./todos";
 import type { Todo } from "./todos";
+import { chat, getChatHistory } from "./chat";
 
 const globalState = {
   count1: 0,
@@ -24,6 +25,57 @@ const getSomeData2 = backend(async () => {
     name: globalState.name,
   };
 });
+
+function Chat() {
+  const [messages, setMessages] = useState<string[]>([]);
+  const [input, setInput] = useState("");
+  const connRef = useRef<ReturnType<typeof chat.connect> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => {
+    getChatHistory().then(setMessages);
+    const conn = chat.connect();
+    connRef.current = conn;
+    conn.onMessage((data) => {
+      const { message } = data as { message: string };
+      setMessages((prev) => [...prev, message]);
+    });
+    return () => conn.close();
+  }, []);
+
+  function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    connRef.current?.send(text);
+    setInput("");
+  }
+
+  return (
+    <section id="chat">
+      <h2>Chat</h2>
+      <ul className="todo-list">
+        {messages.map((message, i) => (
+          <li key={i} className="todo-item">
+            {message}
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={handleSend} className="todo-form">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Say something..."
+          className="todo-input"
+        />
+        <button type="submit" className="todo-add">
+          Send
+        </button>
+      </form>
+    </section>
+  );
+}
 
 function App() {
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -126,6 +178,8 @@ function App() {
           ))}
         </ul>
       )}
+
+      <Chat />
     </section>
   );
 }

@@ -33,6 +33,33 @@ export interface BackendEntry {
   moduleDeclsJs?: string;
 }
 
+export interface WebSocketEntry {
+  endpoint: string;
+  imports: RuntimeImport[];
+  /**
+   * Transpiled JS object-expression (types stripped) with the optional
+   * `onOpen` / `onMessage` / `onClose` handlers, e.g. `({ onMessage(ws, data) {...} })`.
+   */
+  handlersJs: string;
+  file: string;
+  /**
+   * Original source identifier when assigned via `const x = websocket(...)`.
+   * Used by the bundle generator to declare named locals inside the per-file
+   * IIFE so sibling handlers (backend or websocket) can reference each other.
+   */
+  originalName?: string;
+  /**
+   * True when at least one handler in this file references another sibling
+   * handler (backend or websocket) by its original name.
+   */
+  hasSiblingCrossRefs?: boolean;
+  /**
+   * Transpiled JS of module-level declarations shared with sibling backend()/
+   * websocket() handlers from the same file. See {@link BackendEntry.moduleDeclsJs}.
+   */
+  moduleDeclsJs?: string;
+}
+
 export interface InvalidationGraph<TModule> {
   getModuleById(id: string): TModule | undefined;
   invalidateModule(

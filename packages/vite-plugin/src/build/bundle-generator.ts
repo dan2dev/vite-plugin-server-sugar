@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { Registry } from "../core/registry";
-import type { BackendEntry } from "../types";
-import { API_PREFIX } from "../constants";
+import type { BackendEntry, WebSocketEntry } from "../types";
+import { API_PREFIX, WS_API_PREFIX } from "../constants";
 import { toImportPath } from "../utils/path";
-import { backendConstName } from "../utils/crypto";
+import { backendConstName, websocketConstName } from "../utils/crypto";
 import { runtimeImportSpecifier } from "../dev-server/virtual-modules";
 
 interface SpecifierBindings {
@@ -19,14 +19,16 @@ function importedNameToken(imported: string): string {
 }
 
 export function generateBundleContent(
-  registry: Registry,
+  registry: Registry<BackendEntry>,
   serverEntry: string | undefined,
   serverEntryPath: string | null,
   serverOutDir: string,
   clientOutDir: string,
   port: number,
+  wsRegistry?: Registry<WebSocketEntry>,
 ): string | null {
   const hasServerEntry = serverEntryPath ? existsSync(serverEntryPath) : false;
+  const hasWebsocket = !!wsRegistry && wsRegistry.size > 0;
 
   if (serverEntry && !hasServerEntry) {
     throw new Error(
@@ -34,7 +36,7 @@ export function generateBundleContent(
     );
   }
 
-  if (!hasServerEntry && registry.size === 0) return null;
+  if (!hasServerEntry && registry.size === 0 && !hasWebsocket) return null;
 
   const serverImportPath = hasServerEntry
     ? toImportPath(serverOutDir, serverEntryPath!)
@@ -72,7 +74,7 @@ export function generateBundleContent(
     return bindings;
   };
 
-  for (const entry of registry.values()) {
+  function registerImports(entry: { endpoint: string; file: string; imports: BackendEntry["imports"] }): void {
     const locals: string[] = [];
     const aliases: string[] = [];
 
@@ -105,6 +107,11 @@ export function generateBundleContent(
     }
 
     factoryArgsByEndpoint.set(entry.endpoint, { locals, aliases });
+  }
+
+  for (const entry of registry.values()) registerImports(entry);
+  if (wsRegistry) {
+    for (const entry of wsRegistry.values()) registerImports(entry);
   }
 
   const backendImports: string[] = [];
@@ -153,38 +160,61 @@ export function generateBundleContent(
   }
 
   // Group entries by source file so module-level declarations (e.g. `const
-  // state = {}`) are shared across all handlers from the same file.
-  const entriesByFile = new Map<string, BackendEntry[]>();
-  for (const entry of registry.values()) {
-    const arr = entriesByFile.get(entry.file) ?? [];
-    arr.push(entry);
-    entriesByFile.set(entry.file, arr);
+  // state = {}`) are shared across all handlers from the same file —
+  // including across backend() and websocket() handlers in the same file.
+  const entriesByFile = new Map<
+    string,
+    { backend: BackendEntry[]; ws: WebSocketEntry[] }
+  >();
+  function fileBucket(file: string) {
+    let bucket = entriesByFile.get(file);
+    if (!bucket) {
+      bucket = { backend: [], ws: [] };
+      entriesByFile.set(file, bucket);
+    }
+    return bucket;
+  }
+  for (const entry of registry.values()) fileBucket(entry.file).backend.push(entry);
+  if (wsRegistry) {
+    for (const entry of wsRegistry.values()) fileBucket(entry.file).ws.push(entry);
   }
 
-  for (const [, fileEntries] of entriesByFile) {
-    const moduleDeclsJs = fileEntries[0]?.moduleDeclsJs ?? '';
-    const hasSiblingCrossRefs = fileEntries[0]?.hasSiblingCrossRefs ?? false;
+  for (const [, { backend: fileBackend, ws: fileWs }] of entriesByFile) {
+    const first = fileBackend[0] ?? fileWs[0];
+    const moduleDeclsJs = first?.moduleDeclsJs ?? "";
+    const hasSiblingCrossRefs = first?.hasSiblingCrossRefs ?? false;
     const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
+
+    function handlerExpr(
+      entry: { endpoint: string },
+      exprJs: string,
+    ): string {
+      const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
+      return locals.length === 0
+        ? exprJs
+        : `((${locals.join(", ")}) => (${exprJs}))(${aliases.join(", ")})`;
+    }
 
     if (!useIIFE) {
       // No module-level state and no sibling cross-refs: emit each handler individually.
-      for (const entry of fileEntries) {
+      for (const entry of fileBackend) {
         const constName = backendConstName(entry.endpoint);
-        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
-
-        if (locals.length === 0) {
-          lines.push(`const ${constName} = ${entry.fnJs};`, "");
-        } else {
-          lines.push(
-            `const ${constName} = ((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")});`,
-            "",
-          );
-        }
+        lines.push(`const ${constName} = ${handlerExpr(entry, entry.fnJs)};`, "");
+      }
+      for (const entry of fileWs) {
+        const constName = websocketConstName(entry.endpoint);
+        lines.push(
+          `const ${constName} = ${handlerExpr(entry, entry.handlersJs)};`,
+          "",
+        );
       }
     } else {
       // Wrap all handlers from this file in an IIFE so they share the same
       // module-level state and can reference each other by their original names.
-      const constNames = fileEntries.map((e) => backendConstName(e.endpoint));
+      const constNames = [
+        ...fileBackend.map((e) => backendConstName(e.endpoint)),
+        ...fileWs.map((e) => websocketConstName(e.endpoint)),
+      ];
       lines.push(`const { ${constNames.join(", ")} } = (() => {`);
 
       if (moduleDeclsJs) {
@@ -194,21 +224,28 @@ export function generateBundleContent(
       }
 
       // Declare each handler as a named local so siblings can call each other.
-      for (const entry of fileEntries) {
+      for (const entry of fileBackend) {
         const constName = backendConstName(entry.endpoint);
         const localName = entry.originalName ?? constName;
-        const { locals, aliases } = factoryArgsByEndpoint.get(entry.endpoint)!;
-        const handlerExpr =
-          locals.length === 0
-            ? entry.fnJs
-            : `((${locals.join(", ")}) => (${entry.fnJs}))(${aliases.join(", ")})`;
-        lines.push(`  const ${localName} = ${handlerExpr};`);
+        lines.push(`  const ${localName} = ${handlerExpr(entry, entry.fnJs)};`);
+      }
+      for (const entry of fileWs) {
+        const constName = websocketConstName(entry.endpoint);
+        const localName = entry.originalName ?? constName;
+        lines.push(
+          `  const ${localName} = ${handlerExpr(entry, entry.handlersJs)};`,
+        );
       }
 
       lines.push("  return {");
 
-      for (const entry of fileEntries) {
+      for (const entry of fileBackend) {
         const constName = backendConstName(entry.endpoint);
+        const localName = entry.originalName ?? constName;
+        lines.push(`    ${constName}: ${localName},`);
+      }
+      for (const entry of fileWs) {
+        const constName = websocketConstName(entry.endpoint);
         const localName = entry.originalName ?? constName;
         lines.push(`    ${constName}: ${localName},`);
       }
@@ -224,6 +261,16 @@ export function generateBundleContent(
     );
   }
   lines.push("};", "");
+
+  if (hasWebsocket) {
+    lines.push("const __websocketHandlers = {");
+    for (const entry of wsRegistry!.values()) {
+      lines.push(
+        `  ${JSON.stringify(entry.endpoint)}: ${websocketConstName(entry.endpoint)},`,
+      );
+    }
+    lines.push("};", "");
+  }
 
   lines.push(
     `app.post('${API_PREFIX}*', async (c) => {`,
@@ -338,13 +385,71 @@ export function generateBundleContent(
     `const PORT = Number.isInteger(__parsedPort) && __parsedPort >= 1 && __parsedPort <= 65535 ? __parsedPort : ${port};`,
     `if (__rawPort && PORT !== __parsedPort) console.warn(\`[backend] Invalid PORT value "\${__rawPort}", falling back to ${port}\`);`,
     "",
-    "Bun.serve({",
-    "  port: PORT,",
-    "  fetch: (req) => app.fetch(req),",
-    "});",
-    "",
-    "console.log(`[backend] Listening on http://localhost:${PORT}`);",
   );
+
+  if (hasWebsocket) {
+    lines.push(
+      "Bun.serve({",
+      "  port: PORT,",
+      "  fetch(req, server) {",
+      "    const __url = new URL(req.url);",
+      `    if (__url.pathname.startsWith(${JSON.stringify(WS_API_PREFIX)})) {`,
+      "      let __endpoint;",
+      "      try {",
+      `        __endpoint = decodeURIComponent(__url.pathname.slice(${WS_API_PREFIX.length}));`,
+      "      } catch {",
+      '        return new Response("Bad request", { status: 400 });',
+      "      }",
+      "      const __handlers = __websocketHandlers[__endpoint];",
+      "      if (!__handlers) {",
+      '        return new Response("Not found", { status: 404 });',
+      "      }",
+      "      let __args = [];",
+      "      try {",
+      '        const __raw = __url.searchParams.get("args");',
+      "        const __parsed = __raw ? JSON.parse(__raw) : [];",
+      "        __args = Array.isArray(__parsed) ? __parsed : [__parsed];",
+      "      } catch {}",
+      "      const __upgraded = server.upgrade(req, { data: { endpoint: __endpoint, args: __args } });",
+      "      if (__upgraded) return undefined;",
+      '      return new Response("Upgrade failed", { status: 400 });',
+      "    }",
+      "    return app.fetch(req);",
+      "  },",
+      "  websocket: {",
+      "    open(ws) {",
+      "      ws.args = ws.data.args;",
+      "      const __send = ws.send.bind(ws);",
+      "      ws.send = (data) => __send(JSON.stringify(data));",
+      "      __websocketHandlers[ws.data.endpoint]?.onOpen?.(ws);",
+      "    },",
+      "    message(ws, raw) {",
+      "      let data;",
+      "      try {",
+      '        data = JSON.parse(typeof raw === "string" ? raw : raw.toString());',
+      "      } catch {",
+      "        data = raw;",
+      "      }",
+      "      __websocketHandlers[ws.data.endpoint]?.onMessage?.(ws, data);",
+      "    },",
+      "    close(ws) {",
+      "      __websocketHandlers[ws.data.endpoint]?.onClose?.(ws);",
+      "    },",
+      "  },",
+      "});",
+      "",
+      "console.log(`[backend] Listening on http://localhost:${PORT}`);",
+    );
+  } else {
+    lines.push(
+      "Bun.serve({",
+      "  port: PORT,",
+      "  fetch: (req) => app.fetch(req),",
+      "});",
+      "",
+      "console.log(`[backend] Listening on http://localhost:${PORT}`);",
+    );
+  }
 
   return lines.join("\n");
 }

@@ -192,7 +192,11 @@ export function functionNameText(node: ts.Node): string | null {
   return null;
 }
 
-export function inferBackendLabel(call: ts.CallExpression, sf: ts.SourceFile): string {
+export function inferBackendLabel(
+  call: ts.CallExpression,
+  sf: ts.SourceFile,
+  fallbackPrefix = 'backend',
+): string {
   const segments: string[] = [];
   let current: ts.Node = call;
 
@@ -274,5 +278,5 @@ export function inferBackendLabel(call: ts.CallExpression, sf: ts.SourceFile): s
   if (segments.length > 0) return segments.join('.');
 
   const { line, character } = sf.getLineAndCharacterOfPosition(call.getStart(sf));
-  return `backend@${line + 1}:${character + 1}`;
+  return `${fallbackPrefix}@${line + 1}:${character + 1}`;
 }
