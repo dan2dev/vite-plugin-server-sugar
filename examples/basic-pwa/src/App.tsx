@@ -51,7 +51,7 @@ function App() {
     const text = input.trim();
     if (!text) return;
     setAdding(true);
-    const todo = await addTodo(text);
+    const todo = await addTodo(text, Date.now().toString());
     setTodos((prev) => [todo, ...prev]);
     setInput("");
     setAdding(false);

@@ -33,7 +33,8 @@ export const getSomeData = backend(async () => {
   };
 });
 
-export const addTodo = backend(async (text: string) => {
+export const addTodo = backend(async (text: string, someOtherValue: string) => {
+  console.log("some other value", someOtherValue);
   return db
     .query<Todo, [string]>("INSERT INTO todos (text) VALUES (?) RETURNING *")
     .get(text)!;
