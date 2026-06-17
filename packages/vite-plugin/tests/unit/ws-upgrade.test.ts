@@ -235,6 +235,24 @@ describe('WebSocket Upgrade Handler', () => {
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
+      let mockWsInstance: EventEmitter & { close: ReturnType<typeof vi.fn> };
+
+      mockHandleUpgrade.mockImplementation(
+        (
+          _req: unknown,
+          _socket: unknown,
+          _head: unknown,
+          cb: (ws: unknown) => void,
+        ) => {
+          const ws = Object.assign(new EventEmitter(), {
+            send: vi.fn(),
+            close: vi.fn(),
+          });
+          mockWsInstance = ws;
+          cb(ws);
+        },
+      );
+
       (server.ssrLoadModule as ReturnType<typeof vi.fn>).mockResolvedValue({
         default: {
           onOpen() {
@@ -259,9 +277,9 @@ describe('WebSocket Upgrade Handler', () => {
         );
       });
 
-      // Verify the socket.close(1011, ...) was called on the mock ws
-      // The mock ws is created inside handleUpgrade — we check via mockHandleUpgrade
-      // that the callback was invoked, and the close() is on the returned ws object
+      // Verify the socket was closed with code 1011
+      expect(mockWsInstance!.close).toHaveBeenCalledWith(1011, 'Internal error');
+
       consoleSpy.mockRestore();
     });
 
@@ -270,6 +288,24 @@ describe('WebSocket Upgrade Handler', () => {
       wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
+
+      let mockWsInstance: EventEmitter & { close: ReturnType<typeof vi.fn> };
+
+      mockHandleUpgrade.mockImplementation(
+        (
+          _req: unknown,
+          _socket: unknown,
+          _head: unknown,
+          cb: (ws: unknown) => void,
+        ) => {
+          const ws = Object.assign(new EventEmitter(), {
+            send: vi.fn(),
+            close: vi.fn(),
+          });
+          mockWsInstance = ws;
+          cb(ws);
+        },
+      );
 
       (server.ssrLoadModule as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error('Module load failed'),
@@ -289,6 +325,9 @@ describe('WebSocket Upgrade Handler', () => {
           expect.stringContaining('Module load failed'),
         );
       });
+
+      // Verify the socket was closed with code 1011
+      expect(mockWsInstance!.close).toHaveBeenCalledWith(1011, 'Internal error');
 
       consoleSpy.mockRestore();
     });

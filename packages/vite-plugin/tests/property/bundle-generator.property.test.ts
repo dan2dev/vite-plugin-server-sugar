@@ -3,9 +3,85 @@ import * as fc from 'fast-check';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
 import type { BackendEntry, WebSocketEntry } from '../../src/types';
-import { arbIdentifierName } from '../helpers/generators';
+import { arbBackendEntry, arbWebSocketEntry, arbIdentifierName } from '../helpers/generators';
 
 describe('Bundle Generator', () => {
+  it('Property 19: Bundle Generator Structural Validity for Non-Empty Registries', () => {
+    // Feature: vite-plugin-quality-testing, Property 19: Bundle Generator Structural Validity for Non-Empty Registries
+    // **Validates: Requirements 4.1, 4.2, 14.1**
+
+    fc.assert(
+      fc.property(
+        fc.array(arbBackendEntry(), { minLength: 0, maxLength: 5 }),
+        fc.array(arbWebSocketEntry(), { minLength: 0, maxLength: 5 }),
+        (backendEntries, wsEntries) => {
+          // Ensure at least one entry exists (non-empty registry)
+          if (backendEntries.length === 0 && wsEntries.length === 0) return;
+
+          // Deduplicate endpoints to avoid registry conflicts
+          const usedEndpoints = new Set<string>();
+          const dedupedBackend: BackendEntry[] = [];
+          for (const entry of backendEntries) {
+            if (!usedEndpoints.has(entry.endpoint)) {
+              usedEndpoints.add(entry.endpoint);
+              dedupedBackend.push(entry);
+            }
+          }
+          const dedupedWs: WebSocketEntry[] = [];
+          for (const entry of wsEntries) {
+            if (!usedEndpoints.has(entry.endpoint)) {
+              usedEndpoints.add(entry.endpoint);
+              dedupedWs.push(entry);
+            }
+          }
+
+          if (dedupedBackend.length === 0 && dedupedWs.length === 0) return;
+
+          const registry = new Registry<BackendEntry>();
+          for (const entry of dedupedBackend) {
+            registry.set(entry.endpoint, entry);
+            registry.registerFile(entry.file, [entry.endpoint]);
+          }
+
+          let wsRegistry: Registry<WebSocketEntry> | undefined;
+          if (dedupedWs.length > 0) {
+            wsRegistry = new Registry<WebSocketEntry>();
+            for (const entry of dedupedWs) {
+              wsRegistry.set(entry.endpoint, entry);
+              wsRegistry.registerFile(entry.file, [entry.endpoint]);
+            }
+          }
+
+          const output = generateBundleContent(
+            registry,
+            undefined,
+            null,
+            '/out/server',
+            '/out/client',
+            3001,
+            wsRegistry,
+          );
+
+          expect(output).not.toBeNull();
+
+          // (1) Exactly one Bun.serve( call
+          const bunServeMatches = output!.match(/Bun\.serve\(/g) ?? [];
+          expect(bunServeMatches.length).toBe(1);
+
+          // (2) A POST route handler for /__server-build/*
+          expect(output!).toContain("'/__server-build/*'");
+          expect(output!).toContain('.post(');
+
+          // (3) When websocket entries exist, a websocket: configuration block
+          if (dedupedWs.length > 0) {
+            expect(output!).toContain('websocket:');
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
   it('Property 20: Bundle Generator Unique Import Aliases', () => {
     // Feature: vite-plugin-quality-testing, Property 20: Bundle Generator Unique Import Aliases
     // **Validates: Requirements 4.4**

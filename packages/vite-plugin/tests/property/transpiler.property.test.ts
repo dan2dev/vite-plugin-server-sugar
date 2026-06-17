@@ -1,8 +1,32 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { transpileTs } from '../../src/core/transpiler';
+import { transpileTs, transpileStatements } from '../../src/core/transpiler';
+import { arbIdentifierName, arbValidTsExpression } from '../helpers/generators';
+import { isValidJs } from '../helpers/parse-helpers';
 
 describe('Transpiler Property Tests', () => {
+  it('Property 2: Transpiler Produces Valid JavaScript Expressions', () => {
+    // Feature: vite-plugin-quality-testing, Property 2: Transpiler Produces Valid JavaScript Expressions
+    // **Validates: Requirements 2.1**
+    //
+    // For any valid TypeScript arrow function expression (with type annotations, generics,
+    // or async modifiers), transpileTs SHALL produce output that is parseable as a valid
+    // JavaScript expression with no trailing semicolon.
+
+    fc.assert(
+      fc.property(arbValidTsExpression(), (expr) => {
+        const result = transpileTs(expr);
+
+        // The output must not end with a semicolon
+        expect(result.endsWith(';')).toBe(false);
+
+        // The output must be parseable as valid JavaScript
+        expect(isValidJs(result)).toBe(true);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
   it('Property 4: Transpiler Round-Trip Evaluation', () => {
     // Feature: vite-plugin-quality-testing, Property 4: Transpiler Round-Trip Evaluation
     // **Validates: Requirements 2.5**
@@ -68,6 +92,39 @@ describe('Transpiler Property Tests', () => {
         const transpiledValue = eval(transpiled);
 
         expect(transpiledValue).toEqual(originalValue);
+      }),
+      { numRuns: 100 },
+    );
+  });
+
+  it('Property 3: Transpiler Strips Export Modifiers', () => {
+    // Feature: vite-plugin-quality-testing, Property 3: Transpiler Strips Export Modifiers
+    // **Validates: Requirements 2.3**
+    //
+    // For any TypeScript statement prefixed with `export` or `export default`,
+    // `transpileStatements` SHALL produce output that does not begin with `export`.
+
+    // Generator for export statements using valid identifiers
+    const arbExportStatement = fc.oneof(
+      // export const X = 1;
+      arbIdentifierName().map((name) => `export const ${name} = 1;`),
+      // export let X = "hello";
+      arbIdentifierName().map((name) => `export let ${name} = "hello";`),
+      // export function X() {}
+      arbIdentifierName().map((name) => `export function ${name}() {}`),
+      // export class X {}
+      arbIdentifierName().map((name) => `export class ${name} {}`),
+      // export default function X() {}
+      arbIdentifierName().map((name) => `export default function ${name}() {}`),
+      // export default class X {}
+      arbIdentifierName().map((name) => `export default class ${name} {}`),
+    );
+
+    fc.assert(
+      fc.property(arbExportStatement, (stmt) => {
+        const output = transpileStatements(stmt);
+        // The output should not begin with 'export'
+        expect(output.trimStart()).not.toMatch(/^export\b/);
       }),
       { numRuns: 100 },
     );

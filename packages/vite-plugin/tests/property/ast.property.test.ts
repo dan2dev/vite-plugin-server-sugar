@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import ts from 'typescript';
-import { collectBoundNames, collectValueReferences } from '../../src/utils/ast';
+import { collectBoundNames, collectValueReferences, isReferenceIdentifier } from '../../src/utils/ast';
 import { arbIdentifierName } from '../helpers/generators';
 
 /**
@@ -21,7 +21,246 @@ function findFunctionDeclaration(sf: ts.SourceFile): ts.FunctionDeclaration | un
   return undefined;
 }
 
+/**
+ * Helper: find all Identifier nodes in the AST and return them.
+ */
+function findIdentifiers(sf: ts.SourceFile, name: string): ts.Identifier[] {
+  const results: ts.Identifier[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isIdentifier(node) && node.text === name) {
+      results.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sf);
+  return results;
+}
+
 describe('AST Property Tests', () => {
+  describe('Property 8: isReferenceIdentifier Returns False for Non-Reference Positions', () => {
+    // Feature: vite-plugin-quality-testing, Property 8: isReferenceIdentifier Returns False for Non-Reference Positions
+    // **Validates: Requirements 8.1, 8.2, 8.3, 8.7**
+
+    it('should return false for identifiers in property access name positions (obj.X)', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (objName, propName) => {
+            // Avoid conflict between object and property names
+            if (objName === propName) return true;
+
+            const code = `const ${objName} = {}; ${objName}.${propName};`;
+            const sf = parseSource(code);
+
+            // Find identifiers matching propName — the property access name should not be a reference
+            const ids = findIdentifiers(sf, propName);
+            // There should be at least one identifier (the property access)
+            if (ids.length === 0) return false;
+
+            // All occurrences of propName in property access position should return false
+            for (const id of ids) {
+              if (ts.isPropertyAccessExpression(id.parent) && id.parent.name === id) {
+                expect(isReferenceIdentifier(id)).toBe(false);
+              }
+            }
+            return true;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return false for identifiers in object literal property key positions ({ X: v })', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (keyName, valName) => {
+            if (keyName === valName) return true;
+
+            const code = `const ${valName} = 1; const obj = { ${keyName}: ${valName} };`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, keyName);
+            if (ids.length === 0) return false;
+
+            // The key in { keyName: value } should not be a reference
+            for (const id of ids) {
+              if (ts.isPropertyAssignment(id.parent) && id.parent.name === id) {
+                expect(isReferenceIdentifier(id)).toBe(false);
+              }
+            }
+            return true;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return false for identifiers in destructuring property source positions ({ X: local })', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (propSource, localName) => {
+            if (propSource === localName) return true;
+
+            const code = `const obj = { ${propSource}: 1 }; const { ${propSource}: ${localName} } = obj;`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, propSource);
+            if (ids.length === 0) return false;
+
+            // In destructuring { propSource: localName }, propSource is the source property name (not a reference)
+            for (const id of ids) {
+              if (ts.isBindingElement(id.parent) && id.parent.propertyName === id) {
+                expect(isReferenceIdentifier(id)).toBe(false);
+              }
+            }
+            return true;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return false for identifiers in member declaration name positions', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (className, memberName) => {
+            if (className === memberName) return true;
+
+            const code = `class ${className} { ${memberName} = 42; }`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, memberName);
+            if (ids.length === 0) return false;
+
+            // Member declaration names should not be references
+            for (const id of ids) {
+              if (ts.isPropertyDeclaration(id.parent) && id.parent.name === id) {
+                expect(isReferenceIdentifier(id)).toBe(false);
+              }
+            }
+            return true;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return false for identifiers in import specifier positions', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (importedName, moduleName) => {
+            const code = `import { ${importedName} } from './${moduleName}';`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, importedName);
+            if (ids.length === 0) return false;
+
+            // Import specifier names should not be references
+            for (const id of ids) {
+              if (ts.isImportSpecifier(id.parent)) {
+                expect(isReferenceIdentifier(id)).toBe(false);
+              }
+            }
+            return true;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return false for identifiers in label positions', () => {
+      fc.assert(
+        fc.property(arbIdentifierName(), (labelName) => {
+          const code = `${labelName}: for (let i = 0; i < 10; i++) { break ${labelName}; }`;
+          const sf = parseSource(code);
+
+          const ids = findIdentifiers(sf, labelName);
+          if (ids.length === 0) return false;
+
+          // All label identifiers should not be references
+          for (const id of ids) {
+            if (
+              (ts.isLabeledStatement(id.parent) && id.parent.label === id) ||
+              (ts.isBreakStatement(id.parent) && id.parent.label === id) ||
+              (ts.isContinueStatement(id.parent) && id.parent.label === id)
+            ) {
+              expect(isReferenceIdentifier(id)).toBe(false);
+            }
+          }
+          return true;
+        }),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return true for identifiers that read a value binding (variable references)', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (varName, fnName) => {
+            if (varName === fnName || varName === 'console' || fnName === 'console') return true;
+
+            const code = `const ${varName} = 1; function ${fnName}() { return ${varName}; }`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, varName);
+            if (ids.length === 0) return false;
+
+            // Find the identifier used in the return statement — it should be a reference
+            let foundReference = false;
+            for (const id of ids) {
+              if (ts.isReturnStatement(id.parent) && id.parent.expression === id) {
+                expect(isReferenceIdentifier(id)).toBe(true);
+                foundReference = true;
+              }
+            }
+            return foundReference;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    it('should return true for identifiers used as function call expressions', () => {
+      fc.assert(
+        fc.property(
+          arbIdentifierName(),
+          arbIdentifierName(),
+          (fnName, paramName) => {
+            if (fnName === paramName) return true;
+
+            const code = `function ${fnName}(${paramName}: number) { return ${paramName}; } ${fnName}(42);`;
+            const sf = parseSource(code);
+
+            const ids = findIdentifiers(sf, fnName);
+            if (ids.length === 0) return false;
+
+            // Find the identifier used as the expression in a call — it should be a reference
+            let foundCallRef = false;
+            for (const id of ids) {
+              if (ts.isCallExpression(id.parent) && id.parent.expression === id) {
+                expect(isReferenceIdentifier(id)).toBe(true);
+                foundCallRef = true;
+              }
+            }
+            return foundCallRef;
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+  });
+
   describe('Property 10: collectBoundNames Captures All Nested Declarations', () => {
     // Feature: vite-plugin-quality-testing, Property 10: collectBoundNames Captures All Nested Declarations
     // **Validates: Requirements 8.5**

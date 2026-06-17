@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import type { ViteDevServer } from 'vite';
-import { invalidateBackendModules } from '../../src/dev-server/hmr';
-import { RESOLVED_PREFIX } from '../../src/constants';
+import { invalidateBackendModules, invalidateWebsocketModules } from '../../src/dev-server/hmr';
+import { RESOLVED_PREFIX, RESOLVED_WS_PREFIX } from '../../src/constants';
 
 /**
  * Property-based tests for HMR invalidation.
@@ -40,6 +40,52 @@ function createMockServer(knownModuleIds: string[]): {
 }
 
 /**
+ * Creates a mock ViteDevServer with BOTH a mixed module graph and an SSR module graph,
+ * tracking invalidation calls in both graphs separately.
+ */
+function createDualGraphMockServer(knownModuleIds: string[]): {
+  server: ViteDevServer;
+  mixedInvalidatedIds: string[];
+  ssrInvalidatedIds: string[];
+} {
+  const mixedInvalidatedIds: string[] = [];
+  const ssrInvalidatedIds: string[] = [];
+
+  // Create module objects for each known ID (shared across both graphs)
+  const mixedModules = new Map<string, { id: string }>();
+  const ssrModules = new Map<string, { id: string }>();
+  for (const id of knownModuleIds) {
+    mixedModules.set(id, { id });
+    ssrModules.set(id, { id });
+  }
+
+  const mixedGraph = {
+    getModuleById: (id: string) => mixedModules.get(id),
+    invalidateModule: (mod: { id: string }, _seen?: Set<unknown>, _timestamp?: number, _isHmr?: boolean) => {
+      mixedInvalidatedIds.push(mod.id);
+    },
+  };
+
+  const ssrGraph = {
+    getModuleById: (id: string) => ssrModules.get(id),
+    invalidateModule: (mod: { id: string }, _seen?: Set<unknown>, _timestamp?: number, _isHmr?: boolean) => {
+      ssrInvalidatedIds.push(mod.id);
+    },
+  };
+
+  const server = {
+    moduleGraph: mixedGraph,
+    environments: {
+      ssr: {
+        moduleGraph: ssrGraph,
+      },
+    },
+  } as unknown as ViteDevServer;
+
+  return { server, mixedInvalidatedIds, ssrInvalidatedIds };
+}
+
+/**
  * Generator for endpoint names (1-5 unique endpoint names).
  */
 function arbEndpointSet(): fc.Arbitrary<string[]> {
@@ -53,6 +99,71 @@ function arbEndpointSet(): fc.Arbitrary<string[]> {
 }
 
 describe('HMR Property Tests', () => {
+  it('Property 28: HMR Invalidates Union of Previous and New Endpoints in All Graphs', () => {
+    /**
+     * Feature: vite-plugin-quality-testing, Property 28: HMR Invalidates Union of Previous and New Endpoints in All Graphs
+     * **Validates: Requirements 11.1, 11.2, 11.5**
+     *
+     * For any set of previous endpoints and new endpoints for a file change,
+     * invalidateBackendModules and invalidateWebsocketModules SHALL be called
+     * with the union of both sets, and SHALL operate on both the SSR module graph
+     * and the mixed module graph when both exist.
+     */
+    fc.assert(
+      fc.property(
+        arbEndpointSet(),
+        arbEndpointSet(),
+        (previousEndpoints, newEndpoints) => {
+          // Compute the union of previous and new endpoints
+          const union = [...new Set([...previousEndpoints, ...newEndpoints])];
+
+          // --- Test backend invalidation ---
+          const backendVirtualIds = union.map((ep) => RESOLVED_PREFIX + ep);
+          const {
+            server: backendServer,
+            mixedInvalidatedIds: backendMixedIds,
+            ssrInvalidatedIds: backendSsrIds,
+          } = createDualGraphMockServer(backendVirtualIds);
+
+          // Call invalidateBackendModules with the union (simulating what HMR does on file change)
+          invalidateBackendModules(backendServer, union);
+
+          // All union endpoints should be invalidated in both graphs
+          expect(backendMixedIds.length).toBe(union.length);
+          expect(backendSsrIds.length).toBe(union.length);
+
+          for (const ep of union) {
+            const expectedId = RESOLVED_PREFIX + ep;
+            expect(backendMixedIds).toContain(expectedId);
+            expect(backendSsrIds).toContain(expectedId);
+          }
+
+          // --- Test websocket invalidation ---
+          const wsVirtualIds = union.map((ep) => RESOLVED_WS_PREFIX + ep);
+          const {
+            server: wsServer,
+            mixedInvalidatedIds: wsMixedIds,
+            ssrInvalidatedIds: wsSsrIds,
+          } = createDualGraphMockServer(wsVirtualIds);
+
+          // Call invalidateWebsocketModules with the union
+          invalidateWebsocketModules(wsServer, union);
+
+          // All union endpoints should be invalidated in both graphs
+          expect(wsMixedIds.length).toBe(union.length);
+          expect(wsSsrIds.length).toBe(union.length);
+
+          for (const ep of union) {
+            const expectedId = RESOLVED_WS_PREFIX + ep;
+            expect(wsMixedIds).toContain(expectedId);
+            expect(wsSsrIds).toContain(expectedId);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
   it('Property 29: HMR Invalidates All Modules for Deleted Files', () => {
     /**
      * Feature: vite-plugin-quality-testing, Property 29: HMR Invalidates All Modules for Deleted Files

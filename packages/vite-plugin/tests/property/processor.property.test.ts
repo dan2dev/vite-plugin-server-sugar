@@ -3,6 +3,7 @@ import { fc, arbIdentifierName } from '../helpers/generators';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
 import { isValidJs } from '../helpers/parse-helpers';
+import type { BackendEntry, WebSocketEntry } from '../../src/types';
 
 describe('Processor', () => {
   it('Property 11: Processor Generates Unique Endpoints for Duplicate Labels', () => {
@@ -194,6 +195,112 @@ describe('Processor', () => {
           expect(result.code).not.toContain(importStatementPattern);
         },
       ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('Property 12: Processor Shared moduleDeclsJs Across Same-File Entries', () => {
+    // Feature: vite-plugin-quality-testing, Property 12: Processor Shared moduleDeclsJs Across Same-File Entries
+    // **Validates: Requirements 1.7**
+
+    // Generator for module-level declarations that handlers will reference
+    const arbModuleDecl = fc
+      .tuple(arbIdentifierName(), fc.oneof(
+        fc.constant('0'),
+        fc.constant('[]'),
+        fc.constant('{}'),
+        fc.constant('new Map()'),
+        fc.constant('"shared"'),
+      ))
+      .map(([name, init]) => ({ name, decl: `const ${name} = ${init};` }));
+
+    // Generator for a source file with shared module-level state and multiple handlers
+    const arbSourceWithSharedState = fc
+      .tuple(
+        // Module-level declarations (1-3)
+        fc.array(arbModuleDecl, { minLength: 1, maxLength: 3 }),
+        // Number of backend handlers (0-3)
+        fc.integer({ min: 0, max: 3 }),
+        // Number of websocket handlers (0-3)
+        fc.integer({ min: 0, max: 3 }),
+      )
+      .filter(([_, numBackend, numWs]) => numBackend + numWs >= 2)
+      .map(([decls, numBackend, numWs]) => {
+        const lines: string[] = [];
+
+        // Emit module-level declarations
+        for (const { decl } of decls) {
+          lines.push(decl);
+        }
+
+        lines.push('');
+
+        // Reference at least one shared declaration from each handler
+        const sharedRef = decls[0].name;
+
+        // Emit backend handlers that reference the shared state
+        for (let i = 0; i < numBackend; i++) {
+          lines.push(
+            `const backendHandler_${i} = backend((arg: string) => { ${sharedRef}; return arg; });`,
+          );
+        }
+
+        // Emit websocket handlers that reference the shared state
+        for (let i = 0; i < numWs; i++) {
+          lines.push(
+            `const wsHandler_${i} = websocket({ onMessage(ws, data) { ${sharedRef}; ws.send(data); } });`,
+          );
+        }
+
+        return { source: lines.join('\n'), numBackend, numWs };
+      });
+
+    fc.assert(
+      fc.property(arbSourceWithSharedState, ({ source, numBackend, numWs }) => {
+        const registry = new Registry<BackendEntry>();
+        const wsRegistry = new Registry<WebSocketEntry>();
+        const fileId = '/project/src/shared-state.ts';
+
+        processFile(source, fileId, {
+          registry,
+          wsRegistry,
+          root: '/project',
+        });
+
+        // Collect all entries from both registries for this file
+        const backendEndpoints = registry.getEndpointsForFile(fileId);
+        const wsEndpoints = wsRegistry.getEndpointsForFile(fileId);
+
+        // We should have entries registered
+        expect(backendEndpoints.size).toBe(numBackend);
+        expect(wsEndpoints.size).toBe(numWs);
+
+        // Collect all moduleDeclsJs values from all entries
+        const allModuleDeclsValues: (string | undefined)[] = [];
+
+        for (const ep of backendEndpoints) {
+          const entry = registry.get(ep);
+          expect(entry).toBeDefined();
+          allModuleDeclsValues.push(entry!.moduleDeclsJs);
+        }
+
+        for (const ep of wsEndpoints) {
+          const entry = wsRegistry.get(ep);
+          expect(entry).toBeDefined();
+          allModuleDeclsValues.push(entry!.moduleDeclsJs);
+        }
+
+        // All entries must have the same moduleDeclsJs value
+        expect(allModuleDeclsValues.length).toBeGreaterThanOrEqual(2);
+        const first = allModuleDeclsValues[0];
+        for (const value of allModuleDeclsValues) {
+          expect(value).toBe(first);
+        }
+
+        // Since handlers reference module-level state, moduleDeclsJs should be defined
+        expect(first).toBeDefined();
+        expect(first!.length).toBeGreaterThan(0);
+      }),
       { numRuns: 100 },
     );
   });
