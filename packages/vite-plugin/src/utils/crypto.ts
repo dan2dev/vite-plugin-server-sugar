@@ -22,3 +22,8 @@ export function wsConstName(endpoint: string): string {
   const safe = endpoint.replace(/[^A-Za-z0-9_$]/g, '_');
   return `__ws_${safe}_${hash(endpoint)}`;
 }
+
+export function workerClassImportVarName(endpoint: string): string {
+  const safe = endpoint.replace(/[^A-Za-z0-9_$]/g, '_');
+  return `__WorkerClass_${safe}_${hash(endpoint)}`;
+}

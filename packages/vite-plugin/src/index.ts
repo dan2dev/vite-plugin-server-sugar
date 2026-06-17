@@ -3,12 +3,13 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
 
 import type { ServerBuildPluginOptions } from "./types";
-import type { ServerEntry, WsEntry } from "./types";
+import type { ServerEntry, WsEntry, WorkerEntry } from "./types";
 import { Registry } from "./core/registry";
 import { processFile } from "./core/processor";
 import {
   invalidateServerFileModules,
   invalidateServerModules,
+  invalidateWorkerModules,
   invalidateWsModules,
 } from "./dev-server/hmr";
 import {
@@ -29,10 +30,13 @@ import {
   API_PREFIX,
   RESOLVED_CLIENT_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
+  RESOLVED_CLIENT_WORKER_HELPER_ID,
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
+  RESOLVED_WORKER_PREFIX,
   RESOLVED_WS_PREFIX,
   VIRTUAL_PREFIX,
+  VIRTUAL_WORKER_PREFIX,
 } from "./constants";
 import { normalizePath } from "./utils/path";
 
@@ -44,6 +48,10 @@ export function serverBuildPlugin(
   const compile = options.compile === true;
   const registry = new Registry<ServerEntry>();
   const wsRegistry = new Registry<WsEntry>();
+  const workerRegistry = new Registry<WorkerEntry>();
+  // Rolldown reference IDs for each worker chunk (populated in buildStart, build mode only)
+  const workerReferenceIds = new Map<string, string>();
+  let command: "serve" | "build" = "serve";
 
   let root = process.cwd();
   let distOutDir = resolve(root, "dist");
@@ -96,6 +104,7 @@ export function serverBuildPlugin(
         processFile(code, full, {
           registry,
           wsRegistry,
+          workerRegistry,
           root,
           emitWarnings: true,
         });
@@ -106,7 +115,8 @@ export function serverBuildPlugin(
   return {
     name: "vite-plugin-server-build",
 
-    config(config, { command }) {
+    config(config, { command: cmd }) {
+      command = cmd;
       const build = config.build ?? (config.build = {});
       build.outDir = clientBuildOutDir(build.outDir ?? "dist");
 
@@ -127,6 +137,8 @@ export function serverBuildPlugin(
     buildStart() {
       registry.clear();
       wsRegistry.clear();
+      workerRegistry.clear();
+      workerReferenceIds.clear();
       scanDir(root);
       if (registry.size > 0) {
         console.log(
@@ -138,6 +150,21 @@ export function serverBuildPlugin(
           `[server-build] Registered ${wsRegistry.size} $ws endpoints.`,
         );
       }
+      if (workerRegistry.size > 0) {
+        console.log(
+          `[server-build] Registered ${workerRegistry.size} $worker endpoints.`,
+        );
+        if (command === "build") {
+          for (const entry of workerRegistry.values()) {
+            const refId = this.emitFile({
+              type: "chunk",
+              id: VIRTUAL_WORKER_PREFIX + entry.endpoint,
+              name: entry.endpoint.replace(/\//g, "-") + "-worker",
+            });
+            workerReferenceIds.set(entry.endpoint, refId);
+          }
+        }
+      }
     },
 
     resolveId(id) {
@@ -145,7 +172,7 @@ export function serverBuildPlugin(
     },
 
     load(id) {
-      return loadVirtualModule(id, registry, wsRegistry);
+      return loadVirtualModule(id, registry, wsRegistry, workerRegistry);
     },
 
     configureServer(server: ViteDevServer) {
@@ -158,6 +185,11 @@ export function serverBuildPlugin(
       if (wsRegistry.size > 0) {
         console.log(
           `[server-build] Dev server ready with ${wsRegistry.size} $ws endpoints.`,
+        );
+      }
+      if (workerRegistry.size > 0) {
+        console.log(
+          `[server-build] Dev server ready with ${workerRegistry.size} $worker endpoints.`,
         );
       }
 
@@ -300,11 +332,13 @@ export function serverBuildPlugin(
         if (/\.([jt]sx?)$/.test(file) && !file.endsWith(".d.ts")) {
           const previousEndpoints = registry.getEndpointsForFile(file);
           const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
+          const previousWorkerEndpoints = workerRegistry.getEndpointsForFile(file);
           try {
             const code = readFileSync(file, "utf-8");
             processFile(code, file, {
               registry,
               wsRegistry,
+              workerRegistry,
               root,
               emitWarnings: true,
             });
@@ -316,12 +350,18 @@ export function serverBuildPlugin(
               ...previousWsEndpoints,
               ...wsRegistry.getEndpointsForFile(file),
             ]);
+            invalidateWorkerModules(server, [
+              ...previousWorkerEndpoints,
+              ...workerRegistry.getEndpointsForFile(file),
+            ]);
             invalidateServerFileModules(server, [file]);
           } catch {
             registry.unregisterFile(file);
             wsRegistry.unregisterFile(file);
+            workerRegistry.unregisterFile(file);
             invalidateServerModules(server, previousEndpoints);
             invalidateWsModules(server, previousWsEndpoints);
+            invalidateWorkerModules(server, previousWorkerEndpoints);
             invalidateServerFileModules(server, [file]);
           }
         }
@@ -330,27 +370,39 @@ export function serverBuildPlugin(
       server.watcher.on("unlink", (file) => {
         const previousEndpoints = registry.getEndpointsForFile(file);
         const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
+        const previousWorkerEndpoints = workerRegistry.getEndpointsForFile(file);
         registry.unregisterFile(file);
         wsRegistry.unregisterFile(file);
+        workerRegistry.unregisterFile(file);
         invalidateServerModules(server, previousEndpoints);
         invalidateWsModules(server, previousWsEndpoints);
+        invalidateWorkerModules(server, previousWorkerEndpoints);
         invalidateServerFileModules(server, [file]);
       });
     },
 
     transform(code, id) {
+      const cleanId = id.split("?")[0];
       if (
-        id.includes("node_modules") ||
-        id.startsWith(RESOLVED_PREFIX) ||
-        id.startsWith(RESOLVED_WS_PREFIX) ||
-        id.startsWith(RESOLVED_FILE_PREFIX) ||
-        id === RESOLVED_CLIENT_HELPER_ID ||
-        id === RESOLVED_CLIENT_WS_HELPER_ID
+        cleanId.includes("node_modules") ||
+        cleanId.startsWith(RESOLVED_PREFIX) ||
+        cleanId.startsWith(RESOLVED_WS_PREFIX) ||
+        cleanId.startsWith(RESOLVED_WORKER_PREFIX) ||
+        cleanId.startsWith(RESOLVED_FILE_PREFIX) ||
+        cleanId === RESOLVED_CLIENT_HELPER_ID ||
+        cleanId === RESOLVED_CLIENT_WS_HELPER_ID ||
+        cleanId === RESOLVED_CLIENT_WORKER_HELPER_ID
       ) {
         return null;
       }
 
-      return processFile(code, id, { registry, wsRegistry, root });
+      return processFile(code, id, {
+        registry,
+        wsRegistry,
+        workerRegistry,
+        workerReferenceIds: command === "build" ? workerReferenceIds : undefined,
+        root,
+      });
     },
 
     async writeBundle() {

@@ -3,6 +3,7 @@ import type { InvalidationGraph } from "../types";
 import {
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
+  RESOLVED_WORKER_PREFIX,
   RESOLVED_WS_PREFIX,
 } from "../constants";
 
@@ -12,6 +13,10 @@ function virtualServerId(endpoint: string): string {
 
 function virtualWsId(endpoint: string): string {
   return RESOLVED_WS_PREFIX + endpoint;
+}
+
+function virtualWorkerId(endpoint: string): string {
+  return RESOLVED_WORKER_PREFIX + endpoint;
 }
 
 function virtualServerFileId(file: string): string {
@@ -103,6 +108,35 @@ export function invalidateWsModules(
   const timestamp = Date.now();
   for (const graph of moduleGraphs(server)) {
     invalidateWsModulesInGraph(graph, uniqueEndpoints, timestamp);
+  }
+}
+
+function invalidateWorkerModulesInGraph<TModule>(
+  graph: InvalidationGraph<TModule> | undefined,
+  endpoints: string[],
+  timestamp: number,
+): void {
+  if (!graph) return;
+
+  const seen = new Set<TModule>();
+  for (const endpoint of endpoints) {
+    const mod = graph.getModuleById(virtualWorkerId(endpoint));
+    if (mod) {
+      graph.invalidateModule(mod, seen, timestamp, true);
+    }
+  }
+}
+
+export function invalidateWorkerModules(
+  server: ViteDevServer,
+  endpoints: Iterable<string>,
+): void {
+  const uniqueEndpoints = [...new Set(endpoints)];
+  if (uniqueEndpoints.length === 0) return;
+
+  const timestamp = Date.now();
+  for (const graph of moduleGraphs(server)) {
+    invalidateWorkerModulesInGraph(graph, uniqueEndpoints, timestamp);
   }
 }
 

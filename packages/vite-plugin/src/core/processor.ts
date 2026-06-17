@@ -3,13 +3,16 @@ import { relative } from "node:path";
 import { RolldownMagicString } from "rolldown";
 import { Registry } from "./registry";
 import { transpileTs, transpileStatements } from "./transpiler";
-import type { ServerEntry, RuntimeImport, WsEntry } from "../types";
+import type { ServerEntry, RuntimeImport, WsEntry, WorkerEntry } from "../types";
 import {
   API_PREFIX,
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
   CLIENT_WS_CONNECT_EXPORT,
   CLIENT_WS_HELPER_ID,
+  CLIENT_WORKER_HELPER_ID,
+  CLIENT_WORKER_PROXY_EXPORT,
+  VIRTUAL_WORKER_PREFIX,
   WS_API_PREFIX,
 } from "../constants";
 import { normalizePath } from "../utils/path";
@@ -144,6 +147,15 @@ export interface ProcessorOptions {
   registry: Registry<ServerEntry>;
   /** Registry for `$ws()` handlers. Optional for callers that only care about $server(). */
   wsRegistry?: Registry<WsEntry>;
+  /** Registry for `$worker()` handlers. */
+  workerRegistry?: Registry<WorkerEntry>;
+  /**
+   * Map of endpoint → Rollup/Rolldown `emitFile` reference ID for worker chunks.
+   * When present, the processor generates `import.meta.ROLLUP_FILE_URL_<refId>` as
+   * the worker URL (build mode). When absent, it falls back to the Vite dev-server
+   * `/@id/virtual:server-build/worker/<endpoint>` URL.
+   */
+  workerReferenceIds?: Map<string, string>;
   root: string;
   /**
    * When true, emit a console warning for `$server()`/`$ws()` bodies
@@ -165,10 +177,12 @@ export function processFile(
 ): ProcessResult | null {
   const { registry, root } = options;
   const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
+  const workerRegistry = options.workerRegistry;
 
-  if (!/(?:\$server|\$ws)\s*\(/.test(code)) {
+  if (!/(?:\$server|\$ws|\$worker)\s*\(/.test(code)) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
+    workerRegistry?.unregisterFile(id);
     return null;
   }
 
@@ -177,7 +191,12 @@ export function processFile(
   const helperImports: string[] = [];
   const entries: ServerEntry[] = [];
   const wsEntries: WsEntry[] = [];
+  const workerEntries: WorkerEntry[] = [];
   const usedEndpoints = new Set<string>();
+  // Per-worker free refs for sibling stub resolution (separate from server/ws allHandlerFreeRefs)
+  const workerFreeRefs = new Map<string, Set<string>>();
+  // Per-worker set of module-level names inlined into the worker module (used to suppress false-positive warnings)
+  const workerModuleLocalNames = new Map<string, Set<string>>();
 
   function uniqueLocalName(base: string): string {
     const usedNames = collectIdentifierNames(sf);
@@ -196,6 +215,7 @@ export function processFile(
   const clientArgsName = uniqueLocalName("__serverArgs");
   const clientWsConnectHelperName = uniqueLocalName(CLIENT_WS_CONNECT_EXPORT);
   const clientWsArgsName = uniqueLocalName("__wsArgs");
+  const clientWorkerProxyHelperName = uniqueLocalName(CLIENT_WORKER_PROXY_EXPORT);
 
   function endpointName(file: string, name: string): string {
     let rel = normalizePath(relative(root, file));
@@ -268,7 +288,7 @@ export function processFile(
   function uniqueEndpoint(
     label: string,
     call: ts.CallExpression,
-    kind: "server" | "ws",
+    kind: "server" | "ws" | "worker",
   ): string {
     const endpoint = endpointName(id, label);
     if (!usedEndpoints.has(endpoint)) {
@@ -405,6 +425,69 @@ export function processFile(
       return;
     }
 
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "$worker"
+    ) {
+      const call = node;
+      const arg = node.arguments[0];
+
+      if (!arg || !ts.isFunctionLike(arg)) {
+        return;
+      }
+
+      const endpoint = uniqueEndpoint(
+        inferBackendLabel(call, sf, "$worker"),
+        call,
+        "worker",
+      );
+
+      const fnSource = code.slice(arg.getStart(sf), arg.getEnd());
+      const fnJs = transpileTs(fnSource);
+      const imports = collectRuntimeImports(collectReferencedNames(arg));
+      const originalName = originalNameOf(call);
+
+      // Track per-worker free refs separately (don't pollute server/ws allHandlerFreeRefs)
+      const bound = collectBoundNames(arg);
+      const freeRefsForEntry = new Set<string>();
+      for (const name of collectValueReferences(arg)) {
+        if (name === "$worker") continue;
+        if (bound.has(name) || fileImportNames.has(name) || KNOWN_GLOBALS.has(name)) continue;
+        freeRefsForEntry.add(name);
+      }
+      workerFreeRefs.set(endpoint, freeRefsForEntry);
+
+      workerEntries.push({
+        endpoint,
+        imports,
+        fnJs,
+        file: id,
+        originalName,
+        siblingServerStubs: [],
+        siblingWsStubs: [],
+      });
+
+      handlerNodes.set(endpoint, { node: arg, kind: "worker" });
+
+      // Build mode: use import.meta.ROLLUP_FILE_URL_<refId> so rolldown resolves the
+      // URL of the separately-emitted worker chunk. Dev mode: use the Vite /@id/ URL.
+      const refId = options.workerReferenceIds?.get(endpoint);
+      const workerUrl = refId
+        ? `import.meta.ROLLUP_FILE_URL_${refId}`
+        : JSON.stringify(`/@id/${VIRTUAL_WORKER_PREFIX}${endpoint}`);
+
+      // Returns a Proxy that routes method calls to the shared worker thread.
+      const workerWrapper = `${clientWorkerProxyHelperName}(${workerUrl})`;
+
+      replacements.push({
+        start: call.getStart(sf),
+        end: call.getEnd(),
+        text: workerWrapper,
+      });
+      return;
+    }
+
     ts.forEachChild(node, walk);
   }
 
@@ -440,7 +523,7 @@ export function processFile(
       if (
         ts.isCallExpression(n) &&
         ts.isIdentifier(n.expression) &&
-        (n.expression.text === "$server" || n.expression.text === "$ws")
+        (n.expression.text === "$server" || n.expression.text === "$ws" || n.expression.text === "$worker")
       ) {
         found = true;
         return;
@@ -505,7 +588,7 @@ export function processFile(
   function warnOnUncapturedReferences(
     fn: ts.Node,
     endpoint: string,
-    kind: "server" | "ws",
+    kind: "server" | "ws" | "worker",
     moduleLocalNames: Set<string>,
   ): void {
     const bound = collectBoundNames(fn);
@@ -537,13 +620,14 @@ export function processFile(
   // collectModuleDeclsJs runs).
   const handlerNodes = new Map<
     string,
-    { node: ts.Node; kind: "server" | "ws" }
+    { node: ts.Node; kind: "server" | "ws" | "worker" }
   >();
 
   ts.forEachChild(sf, walk);
   if (replacements.length === 0) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
+    workerRegistry?.unregisterFile(id);
     return null;
   }
 
@@ -701,6 +785,118 @@ export function processFile(
     );
   }
 
+  if (workerEntries.length > 0) {
+    // Resolve sibling stubs for same-file $server/$ws references inside worker bodies
+    for (const entry of workerEntries) {
+      const freeRefs = workerFreeRefs.get(entry.endpoint) ?? new Set<string>();
+      for (const serverEntry of entries) {
+        if (serverEntry.originalName && freeRefs.has(serverEntry.originalName)) {
+          entry.siblingServerStubs.push({
+            name: serverEntry.originalName,
+            url: endpointUrl(serverEntry.endpoint),
+          });
+        }
+      }
+      for (const wsEntry of wsEntries) {
+        if (wsEntry.originalName && freeRefs.has(wsEntry.originalName)) {
+          entry.siblingWsStubs.push({
+            name: wsEntry.originalName,
+            url: wsEndpointUrl(wsEntry.endpoint),
+          });
+        }
+      }
+    }
+
+    // Per-worker: collect module-level declarations referenced by the worker body.
+    // These are variables/functions defined in the same file that aren't imports,
+    // globals, bound parameters, or sibling server/ws stubs — they need to be
+    // inlined into the worker module so the function body can reference them.
+    for (const entry of workerEntries) {
+      const freeRefs = workerFreeRefs.get(entry.endpoint) ?? new Set<string>();
+      const siblingNames = new Set([
+        ...entry.siblingServerStubs.map((s) => s.name),
+        ...entry.siblingWsStubs.map((s) => s.name),
+      ]);
+
+      const namesNeededByWorker = new Set<string>();
+      for (const name of freeRefs) {
+        if (!siblingNames.has(name)) namesNeededByWorker.add(name);
+      }
+      if (namesNeededByWorker.size === 0) continue;
+
+      // Transitively expand: a needed declaration may itself reference other
+      // module-level names that also need to be included.
+      const namesDefinedInModule = new Set<string>();
+      let workerModuleChanged = true;
+      while (workerModuleChanged) {
+        workerModuleChanged = false;
+        for (const statement of sf.statements) {
+          if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) continue;
+          if (statementHasHandlerCall(statement)) continue;
+          const bindings = statementTopLevelBindings(statement);
+          if (bindings.size === 0) continue;
+          if ([...bindings].some((b) => namesNeededByWorker.has(b))) {
+            for (const b of bindings) {
+              if (!namesDefinedInModule.has(b)) { namesDefinedInModule.add(b); workerModuleChanged = true; }
+            }
+            for (const ref of collectValueReferences(statement)) {
+              if (!namesNeededByWorker.has(ref) && !fileImportNames.has(ref) && !KNOWN_GLOBALS.has(ref)) {
+                namesNeededByWorker.add(ref);
+                workerModuleChanged = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (namesDefinedInModule.size === 0) continue;
+
+      const fnNode = handlerNodes.get(entry.endpoint)?.node;
+      const allImportNames = fnNode ? collectReferencedNames(fnNode) : new Set<string>();
+      const declParts: string[] = [];
+
+      for (const statement of sf.statements) {
+        if (ts.isImportDeclaration(statement)) continue;
+        if (ts.isExportDeclaration(statement)) continue;
+        if (ts.isInterfaceDeclaration(statement)) continue;
+        if (ts.isTypeAliasDeclaration(statement)) continue;
+        if (ts.isModuleDeclaration(statement)) continue;
+        const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined;
+        if (modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
+        if (statementHasHandlerCall(statement)) continue;
+        const bindings = statementTopLevelBindings(statement);
+        if (bindings.size === 0) continue;
+        if ([...bindings].some((b) => namesDefinedInModule.has(b))) {
+          for (const name of collectValueReferences(statement)) {
+            allImportNames.add(name);
+          }
+          const stmtSource = code.slice(statement.getFullStart(), statement.getEnd()).trim();
+          if (stmtSource) {
+            const js = transpileStatements(stmtSource);
+            if (js) declParts.push(js);
+          }
+        }
+      }
+
+      workerModuleLocalNames.set(entry.endpoint, namesDefinedInModule);
+
+      if (declParts.length > 0) {
+        entry.moduleDeclsJs = declParts.join("\n");
+        // Recompute imports: also include those needed by the inlined declarations
+        entry.imports = collectRuntimeImports(allImportNames);
+      }
+    }
+
+    // Single invoke helper import
+    const workerInvokeImportClause =
+      clientWorkerProxyHelperName === CLIENT_WORKER_PROXY_EXPORT
+        ? CLIENT_WORKER_PROXY_EXPORT
+        : `${CLIENT_WORKER_PROXY_EXPORT} as ${clientWorkerProxyHelperName}`;
+    pushHelperImport(
+      `import { ${workerInvokeImportClause} } from ${JSON.stringify(CLIENT_WORKER_HELPER_ID)};`,
+    );
+  }
+
   function isInsideRange(
     position: number,
     ranges: Array<{ start: number; end: number }>,
@@ -827,16 +1023,31 @@ export function processFile(
       text: "",
     });
   }
+  const declareWorkerMatch =
+    /declare\s+function\s+\$worker\s*[<(][^;]*;/.exec(code);
+  if (declareWorkerMatch) {
+    replacements.push({
+      start: declareWorkerMatch.index,
+      end: declareWorkerMatch.index + declareWorkerMatch[0].length,
+      text: "",
+    });
+  }
 
   // Emit deferred warnings now that we know which module-level names are captured.
   if (handlerNodes.size > 0 && options.emitWarnings) {
-    const moduleLocalNames = new Set(namesDefinedInModuleAndNeededByServer);
+    const serverWsLocalNames = new Set(namesDefinedInModuleAndNeededByServer);
     // Sibling handlers are available as named locals in the IIFE.
     for (const name of siblingHandlerNames) {
-      moduleLocalNames.add(name);
+      serverWsLocalNames.add(name);
     }
     for (const [endpoint, { node, kind }] of handlerNodes) {
-      warnOnUncapturedReferences(node, endpoint, kind, moduleLocalNames);
+      // For workers, use the per-worker inlined module decls so we don't
+      // warn about names that are correctly inlined into the worker module.
+      const localNames =
+        kind === "worker"
+          ? new Set([...serverWsLocalNames, ...(workerModuleLocalNames.get(endpoint) ?? [])])
+          : serverWsLocalNames;
+      warnOnUncapturedReferences(node, endpoint, kind, localNames);
     }
   }
 
@@ -862,6 +1073,17 @@ export function processFile(
     entry.moduleDeclsJs = moduleDeclsJs;
     entry.hasSiblingCrossRefs = hasSiblingCrossRefs;
     wsRegistry.set(entry.endpoint, entry);
+  }
+
+  workerRegistry?.unregisterFile(id);
+  if (workerEntries.length > 0) {
+    workerRegistry?.registerFile(
+      id,
+      workerEntries.map((e) => e.endpoint),
+    );
+    for (const entry of workerEntries) {
+      workerRegistry?.set(entry.endpoint, entry);
+    }
   }
 
   const magic = new RolldownMagicString(code);

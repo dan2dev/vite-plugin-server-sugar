@@ -8,6 +8,7 @@
       "bun-types",
       "vite-plugin-server-build/server",
       "vite-plugin-server-build/ws",
+      "vite-plugin-server-build/worker",
       "node",
     ],
     "skipLibCheck": true,

@@ -1,19 +1,24 @@
 import { dirname, resolve } from "node:path";
 
 import { Registry } from "../core/registry";
-import type { ServerEntry, RuntimeImport, WsEntry } from "../types";
+import type { ServerEntry, RuntimeImport, WsEntry, WorkerEntry } from "../types";
 import {
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
+  CLIENT_WORKER_HELPER_ID,
+  CLIENT_WORKER_PROXY_EXPORT,
   CLIENT_WS_CONNECT_EXPORT,
   CLIENT_WS_HELPER_ID,
   RESOLVED_CLIENT_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
+  RESOLVED_CLIENT_WORKER_HELPER_ID,
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
+  RESOLVED_WORKER_PREFIX,
   RESOLVED_WS_PREFIX,
   VIRTUAL_FILE_PREFIX,
   VIRTUAL_PREFIX,
+  VIRTUAL_WORKER_PREFIX,
   VIRTUAL_WS_PREFIX,
   WS_RUNTIME_GLOBAL_KEY,
 } from "../constants";
@@ -84,6 +89,12 @@ export function resolveVirtualId(id: string): string | undefined {
   }
   if (id === CLIENT_WS_HELPER_ID) {
     return RESOLVED_CLIENT_WS_HELPER_ID;
+  }
+  if (id === CLIENT_WORKER_HELPER_ID) {
+    return RESOLVED_CLIENT_WORKER_HELPER_ID;
+  }
+  if (id.startsWith(VIRTUAL_WORKER_PREFIX)) {
+    return RESOLVED_WORKER_PREFIX + id.slice(VIRTUAL_WORKER_PREFIX.length);
   }
   if (id.startsWith(VIRTUAL_FILE_PREFIX)) {
     return RESOLVED_FILE_PREFIX + id.slice(VIRTUAL_FILE_PREFIX.length);
@@ -216,11 +227,124 @@ function combinedFileModuleCode(
   return lines.join("\n");
 }
 
+function workerModuleCode(entry: WorkerEntry): string {
+  const seenImports = new Set<string>();
+  const importLines: string[] = [];
+
+  for (const runtimeImport of entry.imports) {
+    const line = renderRuntimeImport(runtimeImport, entry.file, null);
+    if (!seenImports.has(line)) {
+      seenImports.add(line);
+      importLines.push(line);
+    }
+  }
+
+  const lines: string[] = [];
+  if (importLines.length > 0) lines.push(...importLines, "");
+
+  if (entry.siblingServerStubs.length > 0) {
+    lines.push(
+      `import { ${CLIENT_FETCH_EXPORT} } from ${JSON.stringify(CLIENT_HELPER_ID)};`,
+    );
+    for (const stub of entry.siblingServerStubs) {
+      lines.push(
+        `const ${stub.name} = async (...__args) => ${CLIENT_FETCH_EXPORT}(${JSON.stringify(stub.url)}, JSON.stringify(__args));`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (entry.siblingWsStubs.length > 0) {
+    lines.push(
+      `import { ${CLIENT_WS_CONNECT_EXPORT} } from ${JSON.stringify(CLIENT_WS_HELPER_ID)};`,
+    );
+    for (const stub of entry.siblingWsStubs) {
+      lines.push(
+        `const ${stub.name} = { connect: (...__args) => ${CLIENT_WS_CONNECT_EXPORT}(${JSON.stringify(stub.url)}, __args) };`,
+      );
+    }
+    lines.push("");
+  }
+
+  if (entry.moduleDeclsJs) {
+    lines.push(entry.moduleDeclsJs, "");
+  }
+
+  // Call the factory once. Promise.resolve() handles both sync and async factories.
+  lines.push(`const __ctxPromise = Promise.resolve((${entry.fnJs})());`, "");
+  lines.push(
+    `self.addEventListener("message", async (e) => {`,
+    `  const { id, method, args } = e.data;`,
+    `  try {`,
+    `    const __ctx = await __ctxPromise;`,
+    `    const __fn = __ctx[method];`,
+    `    if (typeof __fn !== 'function') {`,
+    `      self.postMessage({ id, error: 'Unknown method: ' + method });`,
+    `      return;`,
+    `    }`,
+    `    const result = await __fn(...args);`,
+    `    self.postMessage({ id, result });`,
+    `  } catch (err) {`,
+    `    self.postMessage({ id, error: err instanceof Error ? err.message : String(err) });`,
+    `  }`,
+    `});`,
+    "",
+  );
+
+  return lines.join("\n");
+}
+
 export function loadVirtualModule(
   id: string,
   registry: Registry<ServerEntry>,
   wsRegistry?: Registry<WsEntry>,
+  workerRegistry?: Registry<WorkerEntry>,
 ) {
+  if (id === RESOLVED_CLIENT_WORKER_HELPER_ID) {
+    return {
+      code: [
+        `const __workerInstances = new Map();`,
+        `export function ${CLIENT_WORKER_PROXY_EXPORT}(url) {`,
+        `  return new Proxy({}, {`,
+        `    get(_, method) {`,
+        `      if (typeof method !== 'string') return undefined;`,
+        `      return async (...args) => {`,
+        `        let worker = __workerInstances.get(url);`,
+        `        if (!worker) {`,
+        `          worker = new Worker(url, { type: 'module' });`,
+        `          __workerInstances.set(url, worker);`,
+        `        }`,
+        `        return new Promise((resolve, reject) => {`,
+        `          const id = Math.random().toString(36).slice(2);`,
+        `          const handler = (e) => {`,
+        `            if (e.data.id !== id) return;`,
+        `            worker.removeEventListener('message', handler);`,
+        `            if (e.data.error) reject(new Error(e.data.error));`,
+        `            else resolve(e.data.result);`,
+        `          };`,
+        `          worker.addEventListener('message', handler);`,
+        `          worker.postMessage({ id, method, args });`,
+        `        });`,
+        `      };`,
+        `    }`,
+        `  });`,
+        `}`,
+        "",
+      ].join("\n"),
+      map: null,
+    };
+  }
+
+  // Worker virtual module — strip any query string before looking up the entry
+  const cleanId = id.split("?")[0];
+  if (cleanId.startsWith(RESOLVED_WORKER_PREFIX)) {
+    if (!workerRegistry) return;
+    const endpoint = cleanId.slice(RESOLVED_WORKER_PREFIX.length);
+    const entry = workerRegistry.get(endpoint);
+    if (!entry) return;
+    return { code: workerModuleCode(entry), map: null };
+  }
+
   if (id === RESOLVED_CLIENT_HELPER_ID) {
     return {
       code: [

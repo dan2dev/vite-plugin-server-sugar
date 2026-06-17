@@ -32,15 +32,19 @@
     "./ws": {
       "types": "./ws.d.ts"
     },
+    "./worker": {
+      "types": "./worker.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "server.d.ts",
-    "ws.d.ts"
+    "ws.d.ts",
+    "worker.d.ts"
   ],
   "scripts": {
-    "build": "tsdown && cp server.d.ts dist/server.d.ts && cp ws.d.ts dist/ws.d.ts",
+    "build": "tsdown && cp server.d.ts dist/server.d.ts && cp ws.d.ts dist/ws.d.ts && cp worker.d.ts dist/worker.d.ts",
     "build:watch": "tsdown --watch",
     "dev": "tsdown --watch",
     "test": "vitest --run",

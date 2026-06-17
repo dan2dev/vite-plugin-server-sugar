@@ -71,6 +71,21 @@ export interface InvalidationGraph<TModule> {
   ): void;
 }
 
+export interface WorkerEntry {
+  endpoint: string;
+  imports: RuntimeImport[];
+  /** Transpiled JS arrow-function expression (types stripped). */
+  fnJs: string;
+  file: string;
+  originalName?: string;
+  hasSiblingCrossRefs?: boolean;
+  moduleDeclsJs?: string;
+  /** Client-side fetch stubs for same-file $server() siblings referenced by the worker body. */
+  siblingServerStubs: Array<{ name: string; url: string }>;
+  /** Client-side connect stubs for same-file $ws() siblings referenced by the worker body. */
+  siblingWsStubs: Array<{ name: string; url: string }>;
+}
+
 export interface ServerBuildPluginOptions {
   /** Port for the generated production Bun server. Default: 3001 */
   port?: number;
