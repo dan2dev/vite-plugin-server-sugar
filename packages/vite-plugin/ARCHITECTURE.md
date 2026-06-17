@@ -618,10 +618,11 @@ live entry.
 - Projects that import Bun-only modules from handlers (for example
   `bun:sqlite`) should run Vite dev/build under Bun too, because dev mode
   executes handlers through Vite's SSR loader in the same runtime as Vite.
-- `hono` must be available to the consuming project. When `serverEntry` is
-  configured, that entry is expected to export a Hono-shaped app as `default`
-  or named `app`; when no `serverEntry` is configured, the generated server
-  imports `Hono` and creates `new Hono()` internally.
+- `hono` is a **peer dependency** and must be available in the consuming
+  project's `node_modules`. When `serverEntry` is configured, that entry is
+  expected to export a Hono-shaped app as `default` or named `app`; when no
+  `serverEntry` is configured, the generated server imports `Hono` from the
+  project's environment and creates `new Hono()` internally.
 - `dev-server/bun-dev-server.ts` is present in the source tree but is not
   currently wired from `src/index.ts`. The active dev path is the Vite
   middleware/SSR/virtual-module path described above.

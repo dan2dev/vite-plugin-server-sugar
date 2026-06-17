@@ -74,8 +74,7 @@ projects that use Bun-only APIs in handlers should run Vite under Bun as well
 for dev/build parity, for example `bunx --bun vite` and
 `bunx --bun vite build`.
 
-`hono` is required by the generated server when no custom `serverEntry` is
-provided, and is also the expected app type when `serverEntry` is used.
+`hono` is a **peer dependency**. It must be installed in your project even if you don't provide a custom `serverEntry`, as the generated production server and dev-mode augmentation rely on it.
 
 ## Setup
 
