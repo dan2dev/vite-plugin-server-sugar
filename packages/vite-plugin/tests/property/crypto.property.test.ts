@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { hash, actionConstName, wsConstName, toKebabCase } from '../../src/utils/crypto';
+import { hash, serverConstName, wsConstName, toKebabCase } from '../../src/utils/crypto';
 import { arbIdentifierName, arbEndpointName } from '../helpers/generators';
 
 describe('Crypto Utilities', () => {
@@ -33,10 +33,10 @@ describe('Crypto Utilities', () => {
     // Test with arbitrary strings (including special characters like /, ., @, spaces)
     fc.assert(
       fc.property(fc.string(), (s) => {
-        const actionName = actionConstName(s);
+        const serverName = serverConstName(s);
         const wsName = wsConstName(s);
 
-        expect(actionName).toMatch(validIdentifierPattern);
+        expect(serverName).toMatch(validIdentifierPattern);
         expect(wsName).toMatch(validIdentifierPattern);
       }),
       { numRuns: 100 },
@@ -45,10 +45,10 @@ describe('Crypto Utilities', () => {
     // Test with realistic endpoint names from generator
     fc.assert(
       fc.property(arbEndpointName(), (s) => {
-        const actionName = actionConstName(s);
+        const serverName = serverConstName(s);
         const wsName = wsConstName(s);
 
-        expect(actionName).toMatch(validIdentifierPattern);
+        expect(serverName).toMatch(validIdentifierPattern);
         expect(wsName).toMatch(validIdentifierPattern);
       }),
       { numRuns: 100 },

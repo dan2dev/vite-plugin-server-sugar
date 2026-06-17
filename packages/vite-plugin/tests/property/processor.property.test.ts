@@ -3,7 +3,7 @@ import { fc, arbIdentifierName } from '../helpers/generators';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
 import { isValidJs } from '../helpers/parse-helpers';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 describe('Processor', () => {
   it('Property 11: Processor Generates Unique Endpoints for Duplicate Labels', () => {
@@ -14,14 +14,14 @@ describe('Processor', () => {
         const registry = new Registry();
         const wsRegistry = new Registry();
 
-        // Generate a source file with N $action() calls inside an array literal.
+        // Generate a source file with N $server() calls inside an array literal.
         // All calls are in the same array under `export default`, producing labels
         // like default.0, default.1, etc. The property verifies no duplicate endpoints.
-        const actionCalls = Array.from(
+        const serverCalls = Array.from(
           { length: n },
-          (_, i) => `$action(() => ${i + 1})`,
+          (_, i) => `$server(() => ${i + 1})`,
         ).join(', ');
-        const source = `export default [${actionCalls}]`;
+        const source = `export default [${serverCalls}]`;
 
         const fileId = '/project/src/handlers.ts';
 
@@ -34,7 +34,7 @@ describe('Processor', () => {
         // Collect all registered endpoints for this file
         const endpoints = registry.getEndpointsForFile(fileId);
 
-        // All N $action() calls should have produced registered endpoints
+        // All N $server() calls should have produced registered endpoints
         expect(endpoints.size).toBe(n);
 
         // Verify all endpoints are unique (Set guarantees uniqueness,
@@ -56,16 +56,16 @@ describe('Processor', () => {
     // Feature: vite-plugin-quality-testing, Property 11: Processor Generates Unique Endpoints for Duplicate Labels
     // **Validates: Requirements 1.5**
     // This test uses `var` redeclarations to force the same inferred label ("handler")
-    // for multiple $action() calls, triggering the position disambiguation logic.
+    // for multiple $server() calls, triggering the position disambiguation logic.
     fc.assert(
       fc.property(fc.integer({ min: 2, max: 5 }), (n) => {
         const registry = new Registry();
         const wsRegistry = new Registry();
 
-        // Generate N `var handler = $action(...)` statements — all produce label "handler"
+        // Generate N `var handler = $server(...)` statements — all produce label "handler"
         const statements = Array.from(
           { length: n },
-          (_, i) => `var handler = $action(() => ${i + 1});`,
+          (_, i) => `var handler = $server(() => ${i + 1});`,
         ).join('\n');
         const source = statements;
 
@@ -80,7 +80,7 @@ describe('Processor', () => {
         // Collect all registered endpoints for this file
         const endpoints = registry.getEndpointsForFile(fileId);
 
-        // All N $action() calls should have produced registered endpoints
+        // All N $server() calls should have produced registered endpoints
         expect(endpoints.size).toBe(n);
 
         // Verify all endpoints are unique — the uniqueEndpoint function
@@ -115,11 +115,11 @@ describe('Processor', () => {
           const wsRegistry = new Registry();
           const fileId = '/project/src/my-handlers.ts';
 
-          // Step 1: Process a file with N $action() handlers (generates endpoints)
+          // Step 1: Process a file with N $server() handlers (generates endpoints)
           const sourceWithHandlers = handlerNames
             .map(
               (name, i) =>
-                `const ${name}_${i} = $action((arg: string) => arg + "${name}");`,
+                `const ${name}_${i} = $server((arg: string) => arg + "${name}");`,
             )
             .join('\n');
 
@@ -133,7 +133,7 @@ describe('Processor', () => {
           const endpointsAfterFirst = registry.getEndpointsForFile(fileId);
           expect(endpointsAfterFirst.size).toBe(handlerNames.length);
 
-          // Step 3: Re-process same file with code that has NO $action()/$ws() calls
+          // Step 3: Re-process same file with code that has NO $server()/$ws() calls
           const sourceWithoutHandlers = plainVarNames
             .map((name, i) => `const ${name}_plain_${i} = ${i + 1};`)
             .join('\n');
@@ -170,10 +170,10 @@ describe('Processor', () => {
           const wsRegistry = new Registry();
           const fileId = '/project/src/server-imports.ts';
 
-          // Build a source file where the import is used ONLY inside $action() handler
+          // Build a source file where the import is used ONLY inside $server() handler
           const source = [
             `import { ${importName} } from "${moduleName}";`,
-            `const handler = $action((arg: string) => ${importName}(arg));`,
+            `const handler = $server((arg: string) => ${importName}(arg));`,
           ].join('\n');
 
           const result = processFile(source, fileId, {
@@ -182,11 +182,11 @@ describe('Processor', () => {
             root: '/project',
           });
 
-          // The processor should produce output (file has a $action() call)
+          // The processor should produce output (file has a $server() call)
           if (result === null) return; // skip if not processed
 
           // The client output should NOT contain the import statement
-          // because the imported identifier is only referenced inside $action()
+          // because the imported identifier is only referenced inside $server()
           const importPattern = `from "${moduleName}"`;
           expect(result.code).not.toContain(importPattern);
 
@@ -219,7 +219,7 @@ describe('Processor', () => {
       .tuple(
         // Module-level declarations (1-3)
         fc.array(arbModuleDecl, { minLength: 1, maxLength: 3 }),
-        // Number of action handlers (0-3)
+        // Number of server handlers (0-3)
         fc.integer({ min: 0, max: 3 }),
         // Number of ws handlers (0-3)
         fc.integer({ min: 0, max: 3 }),
@@ -238,10 +238,10 @@ describe('Processor', () => {
         // Reference at least one shared declaration from each handler
         const sharedRef = decls[0].name;
 
-        // Emit action handlers that reference the shared state
+        // Emit server handlers that reference the shared state
         for (let i = 0; i < numBackend; i++) {
           lines.push(
-            `const actionHandler_${i} = $action((arg: string) => { ${sharedRef}; return arg; });`,
+            `const serverHandler_${i} = $server((arg: string) => { ${sharedRef}; return arg; });`,
           );
         }
 
@@ -257,7 +257,7 @@ describe('Processor', () => {
 
     fc.assert(
       fc.property(arbSourceWithSharedState, ({ source, numBackend, numWs }) => {
-        const registry = new Registry<ActionEntry>();
+        const registry = new Registry<ServerEntry>();
         const wsRegistry = new Registry<WsEntry>();
         const fileId = '/project/src/shared-state.ts';
 
@@ -268,17 +268,17 @@ describe('Processor', () => {
         });
 
         // Collect all entries from both registries for this file
-        const actionEndpoints = registry.getEndpointsForFile(fileId);
+        const serverEndpoints = registry.getEndpointsForFile(fileId);
         const wsEndpoints = wsRegistry.getEndpointsForFile(fileId);
 
         // We should have entries registered
-        expect(actionEndpoints.size).toBe(numBackend);
+        expect(serverEndpoints.size).toBe(numBackend);
         expect(wsEndpoints.size).toBe(numWs);
 
         // Collect all moduleDeclsJs values from all entries
         const allModuleDeclsValues: (string | undefined)[] = [];
 
-        for (const ep of actionEndpoints) {
+        for (const ep of serverEndpoints) {
           const entry = registry.get(ep);
           expect(entry).toBeDefined();
           allModuleDeclsValues.push(entry!.moduleDeclsJs);
@@ -320,32 +320,34 @@ describe('Processor', () => {
       fc.constant('Promise.resolve(arg)'),
     );
 
+    const arbValidParam = arbIdentifierName().filter(n => n !== 'if' && n !== 'for' && n !== 'while' && n !== 'switch' && n !== 'case' && n !== 'return');
+
     // Generator for handler patterns: arrow functions (sync/async), with params
     const arbBackendHandler = fc.oneof(
       // Simple arrow function with one param
-      arbIdentifierName().chain((param) =>
+      arbValidParam.chain((param) =>
         arbHandlerBody.map((body) => `(${param}: string) => ${body}`),
       ),
       // Async arrow function with one param
-      arbIdentifierName().chain((param) =>
+      arbValidParam.chain((param) =>
         arbHandlerBody.map((body) => `async (${param}: string) => ${body}`),
       ),
       // Arrow function with multiple params
       fc
-        .tuple(arbIdentifierName(), arbIdentifierName())
+        .tuple(arbValidParam, arbValidParam)
         .chain(([p1, p2]) =>
           arbHandlerBody.map(
             (body) => `(${p1}: string, ${p2}: number) => ${body}`,
           ),
         ),
       // Arrow function with block body
-      arbIdentifierName().chain((param) =>
+      arbValidParam.chain((param) =>
         arbHandlerBody.map(
           (body) => `(${param}: string) => { return ${body}; }`,
         ),
       ),
       // Async arrow function with block body
-      arbIdentifierName().chain((param) =>
+      arbValidParam.chain((param) =>
         arbHandlerBody.map(
           (body) => `async (${param}: string) => { return ${body}; }`,
         ),
@@ -359,10 +361,10 @@ describe('Processor', () => {
       '{ onMessage(ws, data) { ws.send(JSON.stringify(data)); } }',
     );
 
-    // Generator for source files containing $action() and/or $ws() calls
+    // Generator for source files containing $server() and/or $ws() calls
     const arbSourceWithHandlers = fc
       .tuple(
-        // action calls
+        // server calls
         fc.array(
           fc.tuple(arbIdentifierName(), arbBackendHandler),
           { minLength: 0, maxLength: 3 },
@@ -373,13 +375,13 @@ describe('Processor', () => {
           { minLength: 0, maxLength: 2 },
         ),
       )
-      .filter(([actions, wss]) => actions.length + wss.length > 0)
-      .map(([actions, wss]) => {
+      .filter(([servers, wss]) => servers.length + wss.length > 0)
+      .map(([servers, wss]) => {
         const lines: string[] = [];
 
         // Generate unique variable names using index suffixes
-        actions.forEach(([name, handler], i) => {
-          lines.push(`const ${name}_b${i} = $action(${handler});`);
+        servers.forEach(([name, handler], i) => {
+          lines.push(`const ${name}_b${i} = $server(${handler});`);
         });
 
         wss.forEach(([name, handler], i) => {
@@ -401,7 +403,7 @@ describe('Processor', () => {
           root: '/project',
         });
 
-        // processFile should return a result for files with action/ws calls
+        // processFile should return a result for files with server/ws calls
         if (result === null) {
           // If null, the regex fast-path didn't match — skip this case
           return true;

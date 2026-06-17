@@ -18,7 +18,7 @@ const globalState = {
   },
 };
 
-const getSomeData2 = $action(async () => {
+const getSomeData2 = $server(async () => {
   globalState.count1 += 1;
   return {
     count: globalState.count1,

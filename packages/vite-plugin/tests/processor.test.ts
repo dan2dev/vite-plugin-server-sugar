@@ -8,27 +8,27 @@ describe("processFile", () => {
 
   test("strips module-level declarations used only by handlers", () => {
     const code = `
-import { $action } from 'vite-plugin-server-build/action';
+import { $server } from 'vite-plugin-server-build/server';
 const SECRET = "secret-value";
-export const getSecret = $action(() => SECRET);
+export const getSecret = $server(() => SECRET);
 `;
 
     const registry = new Registry();
     const result = processFile(code, id, { registry, root });
 
     expect(result).not.toBeNull();
-    expect(result!.code).toContain("__actionFetch");
-    expect(result!.code).toContain("virtual:server-build/action-fetch");
+    expect(result!.code).toContain("__serverFetch");
+    expect(result!.code).toContain("virtual:server-build/server-fetch");
     expect(result!.code).not.toContain("SECRET");
     expect(result!.code).not.toContain("secret-value");
   });
 
   test("strips transitive module-level declarations", () => {
     const code = `
-import { $action } from 'vite-plugin-server-build/action';
+import { $server } from 'vite-plugin-server-build/server';
 const A = 1;
 const B = A + 1;
-export const get = $action(() => B);
+export const get = $server(() => B);
 `;
 
     const registry = new Registry();
@@ -41,9 +41,9 @@ export const get = $action(() => B);
 
   test("preserves module-level declarations used by client code", () => {
     const code = `
-import { $action } from 'vite-plugin-server-build/action';
+import { $server } from 'vite-plugin-server-build/server';
 const SHARED = "shared-value";
-export const get = $action(() => SHARED);
+export const get = $server(() => SHARED);
 console.log(SHARED);
 `;
 
@@ -57,10 +57,10 @@ console.log(SHARED);
   
   test("strips imports used only by stripped declarations", () => {
     const code = `
-import { $action } from 'vite-plugin-server-build/action';
+import { $server } from 'vite-plugin-server-build/server';
 import { readFileSync } from 'node:fs';
 const config = readFileSync('config.json');
-export const get = $action(() => config);
+export const get = $server(() => config);
 `;
 
     const registry = new Registry();
@@ -73,11 +73,11 @@ export const get = $action(() => config);
 
   test("strips multiple declarations correctly", () => {
     const code = `
-import { $action } from 'vite-plugin-server-build/action';
+import { $server } from 'vite-plugin-server-build/server';
 const A = 1;
 const B = 2;
-export const getA = $action(() => A);
-export const getB = $action(() => B);
+export const getA = $server(() => A);
+export const getB = $server(() => B);
 `;
 
     const registry = new Registry();
@@ -96,8 +96,8 @@ export const x: T = { a: 123 };
 `;
 
     const registry = new Registry();
-    // Use code with $action() call to trigger processing
-    const result = processFile(code + "\nexport const get = $action(() => {});", id, { registry, root });
+    // Use code with $server() call to trigger processing
+    const result = processFile(code + "\nexport const get = $server(() => {});", id, { registry, root });
 
     expect(result).not.toBeNull();
     expect(result!.code).toContain("const VAL = 123");
@@ -106,7 +106,7 @@ export const x: T = { a: 123 };
   test("preserves exported interfaces even if not used by client code", () => {
     const code = `
 export interface Todo { id: number }
-export const getTodos = $action(() => []);
+export const getTodos = $server(() => []);
 `;
 
     const registry = new Registry();

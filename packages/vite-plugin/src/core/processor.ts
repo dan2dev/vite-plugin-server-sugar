@@ -3,7 +3,7 @@ import { relative } from "node:path";
 import { RolldownMagicString } from "rolldown";
 import { Registry } from "./registry";
 import { transpileTs, transpileStatements } from "./transpiler";
-import type { ActionEntry, RuntimeImport, WsEntry } from "../types";
+import type { ServerEntry, RuntimeImport, WsEntry } from "../types";
 import {
   API_PREFIX,
   CLIENT_FETCH_EXPORT,
@@ -25,7 +25,7 @@ import {
 
 /**
  * Identifiers that resolve to ambient globals available in the Bun server
- * runtime, so referencing them inside a `backend()`/`websocket()` body is
+ * runtime, so referencing them inside a `server()`/`ws()` body is
  * fine even though they are neither imported nor declared locally.
  */
 const KNOWN_GLOBALS = new Set<string>([
@@ -118,7 +118,7 @@ const KNOWN_GLOBALS = new Set<string>([
 
 const WS_HANDLER_KEYS = new Set(["onOpen", "onMessage", "onClose"]);
 
-function isValidWebsocketHandlersArg(arg: ts.Node): arg is ts.ObjectLiteralExpression {
+function isValidWsHandlersArg(arg: ts.Node): arg is ts.ObjectLiteralExpression {
   if (!ts.isObjectLiteralExpression(arg)) return false;
 
   return arg.properties.some((prop) => {
@@ -141,12 +141,12 @@ function isValidWebsocketHandlersArg(arg: ts.Node): arg is ts.ObjectLiteralExpre
 }
 
 export interface ProcessorOptions {
-  registry: Registry<ActionEntry>;
-  /** Registry for `$ws()` handlers. Optional for callers that only care about $action(). */
+  registry: Registry<ServerEntry>;
+  /** Registry for `$ws()` handlers. Optional for callers that only care about $server(). */
   wsRegistry?: Registry<WsEntry>;
   root: string;
   /**
-   * When true, emit a console warning for `$action()`/`$ws()` bodies
+   * When true, emit a console warning for `$server()`/`$ws()` bodies
    * that reference values they will not receive on the server (not imports,
    * parameters, locals, or known globals).
    */
@@ -166,7 +166,7 @@ export function processFile(
   const { registry, root } = options;
   const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
 
-  if (!/(?:\$action|\$ws)\s*\(/.test(code)) {
+  if (!/(?:\$server|\$ws)\s*\(/.test(code)) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
     return null;
@@ -175,7 +175,7 @@ export function processFile(
   const sf = ts.createSourceFile(id, code, ts.ScriptTarget.Latest, true);
   const replacements: Array<{ start: number; end: number; text: string }> = [];
   const helperImports: string[] = [];
-  const entries: ActionEntry[] = [];
+  const entries: ServerEntry[] = [];
   const wsEntries: WsEntry[] = [];
   const usedEndpoints = new Set<string>();
 
@@ -193,7 +193,7 @@ export function processFile(
   }
 
   const clientFetchHelperName = uniqueLocalName(CLIENT_FETCH_EXPORT);
-  const clientArgsName = uniqueLocalName("__actionArgs");
+  const clientArgsName = uniqueLocalName("__serverArgs");
   const clientWsConnectHelperName = uniqueLocalName(CLIENT_WS_CONNECT_EXPORT);
   const clientWsArgsName = uniqueLocalName("__wsArgs");
 
@@ -268,7 +268,7 @@ export function processFile(
   function uniqueEndpoint(
     label: string,
     call: ts.CallExpression,
-    kind: "action" | "ws",
+    kind: "server" | "ws",
   ): string {
     const endpoint = endpointName(id, label);
     if (!usedEndpoints.has(endpoint)) {
@@ -300,7 +300,7 @@ export function processFile(
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "$action"
+      node.expression.text === "$server"
     ) {
       const call = node;
       const arg = node.arguments[0];
@@ -310,9 +310,9 @@ export function processFile(
       }
 
       const endpoint = uniqueEndpoint(
-        inferBackendLabel(call, sf, "$action"),
+        inferBackendLabel(call, sf, "$server"),
         call,
-        "action",
+        "server",
       );
 
       const fnSource = code.slice(arg.getStart(sf), arg.getEnd());
@@ -326,7 +326,7 @@ export function processFile(
       // These are candidates for module-level capture via the IIFE.
       const bound = collectBoundNames(arg);
       for (const name of collectValueReferences(arg)) {
-        if (name === "$action") continue;
+        if (name === "$server") continue;
         if (
           bound.has(name) ||
           fileImportNames.has(name) ||
@@ -336,7 +336,7 @@ export function processFile(
         allHandlerFreeRefs.add(name);
       }
 
-      handlerNodes.set(endpoint, { node: arg, kind: "action" });
+      handlerNodes.set(endpoint, { node: arg, kind: "server" });
 
       const fetchWrapper = [
         `async (...${clientArgsName}) => ${clientFetchHelperName}(`,
@@ -360,7 +360,7 @@ export function processFile(
       const call = node;
       const arg = node.arguments[0];
 
-      if (!arg || !isValidWebsocketHandlersArg(arg)) {
+      if (!arg || !isValidWsHandlersArg(arg)) {
         return;
       }
 
@@ -430,7 +430,7 @@ export function processFile(
   }
 
   /**
-   * Returns true when the statement contains a backend() or websocket() call
+   * Returns true when the statement contains a server() or ws() call
    * and should be excluded from module-level declaration collection.
    */
   function statementHasHandlerCall(statement: ts.Node): boolean {
@@ -440,7 +440,7 @@ export function processFile(
       if (
         ts.isCallExpression(n) &&
         ts.isIdentifier(n.expression) &&
-        (n.expression.text === "$action" || n.expression.text === "$ws")
+        (n.expression.text === "$server" || n.expression.text === "$ws")
       ) {
         found = true;
         return;
@@ -489,7 +489,7 @@ export function processFile(
     return names;
   }
 
-  // Names referenced by any backend/websocket handler in this file that are
+  // Names referenced by any server/ws handler in this file that are
   // not:
   // - import-bound (captured via collectRuntimeImports)
   // - function parameters / local variables (bound inside the handler)
@@ -505,13 +505,13 @@ export function processFile(
   function warnOnUncapturedReferences(
     fn: ts.Node,
     endpoint: string,
-    kind: "action" | "ws",
+    kind: "server" | "ws",
     moduleLocalNames: Set<string>,
   ): void {
     const bound = collectBoundNames(fn);
     const free: string[] = [];
     for (const name of collectValueReferences(fn)) {
-      if (name === "$action" || name === "$ws") continue;
+      if (name === "$server" || name === "$ws") continue;
       if (
         bound.has(name) ||
         fileImportNames.has(name) ||
@@ -537,7 +537,7 @@ export function processFile(
   // collectModuleDeclsJs runs).
   const handlerNodes = new Map<
     string,
-    { node: ts.Node; kind: "backend" | "websocket" }
+    { node: ts.Node; kind: "server" | "ws" }
   >();
 
   ts.forEachChild(sf, walk);
@@ -556,7 +556,7 @@ export function processFile(
 
   /**
    * Names of module-level declarations that are transitively needed by at
-   * least one backend/websocket handler in this file.
+   * least one server/ws handler in this file.
    */
   const namesNeededByServer = new Set(allHandlerFreeRefs);
   const namesDefinedInModuleAndNeededByServer = new Set<string>();
@@ -606,7 +606,7 @@ export function processFile(
 
   /**
    * Collect transpiled JS for module-level declarations that are REFERENCED by
-   * at least one backend/websocket handler in this file.
+   * at least one server/ws handler in this file.
    */
   function collectModuleDeclsJs(): string {
     const parts: string[] = [];
@@ -809,12 +809,12 @@ export function processFile(
     }
   }
 
-  // Remove the `declare function $action: ...;` / `declare function $ws: ...;` shims, if present.
-  const declareActionMatch = /declare\s+function\s+\$action\s*[<(][^;]*;/.exec(code);
-  if (declareActionMatch) {
+  // Remove the `declare function $server: ...;` / `declare function $ws: ...;` shims, if present.
+  const declareServerMatch = /declare\s+function\s+\$server\s*[<(][^;]*;/.exec(code);
+  if (declareServerMatch) {
     replacements.push({
-      start: declareActionMatch.index,
-      end: declareActionMatch.index + declareActionMatch[0].length,
+      start: declareServerMatch.index,
+      end: declareServerMatch.index + declareServerMatch[0].length,
       text: "",
     });
   }

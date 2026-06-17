@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   hash,
   toKebabCase,
-  actionConstName,
+  serverConstName,
   wsConstName,
 } from '../../src/utils/crypto';
 
@@ -72,36 +72,36 @@ describe('crypto utilities', () => {
     });
   });
 
-  describe('actionConstName', () => {
+  describe('serverConstName', () => {
     it('handles endpoints with / characters', () => {
-      const result = actionConstName('/api/users');
+      const result = serverConstName('/api/users');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with . characters', () => {
-      const result = actionConstName('api.users.get');
+      const result = serverConstName('api.users.get');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with @ characters', () => {
-      const result = actionConstName('@scope/package');
+      const result = serverConstName('@scope/package');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with mixed special characters', () => {
-      const result = actionConstName('/api/@user/profile.get');
+      const result = serverConstName('/api/@user/profile.get');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('produces consistent output for the same input', () => {
-      const result1 = actionConstName('/api/todos');
-      const result2 = actionConstName('/api/todos');
+      const result1 = serverConstName('/api/todos');
+      const result2 = serverConstName('/api/todos');
       expect(result1).toBe(result2);
     });
 
-    it('starts with __action_ prefix', () => {
-      const result = actionConstName('test');
-      expect(result).toMatch(/^__action_/);
+    it('starts with __server_ prefix', () => {
+      const result = serverConstName('test');
+      expect(result).toMatch(/^__server_/);
     });
   });
 

@@ -28,7 +28,7 @@ describe("Bundler compile targets", () => {
 });
 
 describe("Bundled server source", () => {
-  test("inlines local server entry and action imports into server.mjs", async () => {
+  test("inlines local server entry and server imports into server.mjs", async () => {
     const root = mkdtempSync(join(tmpdir(), "server-bundle-test-"));
 
     try {

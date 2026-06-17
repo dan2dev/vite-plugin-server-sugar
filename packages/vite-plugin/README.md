@@ -1,6 +1,6 @@
 # vite-plugin-server-build
 
-A Vite plugin that turns `$action()` and `$ws()` calls written inline in
+A Vite plugin that turns `$server()` and `$ws()` calls written inline in
 your frontend source into type-safe server endpoints. In the browser bundle the
 calls become `fetch()` or `WebSocket` clients; on the server the original
 functions and handlers run inside a generated Bun + Hono application.
@@ -9,11 +9,11 @@ functions and handlers run inside a generated Bun + Hono application.
 // src/todos.ts
 import { db } from "./db";
 
-export const getTodos = action(async () => {
+export const getTodos = server(async () => {
   return db.query("SELECT * FROM todos").all();
 });
 
-export const addTodo = action(async (text: string) => {
+export const addTodo = server(async (text: string) => {
   return db.query("INSERT INTO todos (text) VALUES (?) RETURNING *").get(text);
 });
 ```
@@ -39,7 +39,7 @@ type ChatMessage = { text: string };
 
 const history: ChatMessage[] = [];
 
-export const getHistory = action(async () => history);
+export const getHistory = server(async () => history);
 
 export const chat = ws({
   onOpen(ws: ServerWs<ChatMessage>) {
@@ -97,14 +97,14 @@ export default defineConfig({
 
 **`tsconfig.json`**
 
-Register the ambient macro types so TypeScript recognizes `$action()` and
+Register the ambient macro types so TypeScript recognizes `$server()` and
 `$ws()` without imports:
 
 ```json
 {
   "compilerOptions": {
     "types": [
-      "vite-plugin-server-build/action",
+      "vite-plugin-server-build/server",
       "vite-plugin-server-build/ws"
     ]
   }
@@ -135,18 +135,18 @@ export default app;
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `port` | `number` | `3001` | Dev-server port default and generated production server fallback port. Production can override it with the `PORT` environment variable. |
-| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. Its routes and middleware are layered with generated action routes. |
+| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. Its routes and middleware are layered with generated server routes. |
 | `compile` | `boolean` | `false` | After emitting `dist/server/server.mjs`, also compile standalone Bun executables for every supported Bun target. Requires Bun runtime support or the `bun` CLI on `PATH`. |
 
 ## Programming Model
 
-`$action()` and `$ws()` are compile-time macros, not runtime functions.
-Their declarations in `action.d.ts` and `ws.d.ts` exist only for type
+`$server()` and `$ws()` are compile-time macros, not runtime functions.
+Their declarations in `server.d.ts` and `ws.d.ts` exist only for type
 checking.
 
 During Vite transforms:
 
-- `action(fn)` is replaced in client code with an async function that posts
+- `server(fn)` is replaced in client code with an async function that posts
   JSON to `/__server-build/<endpoint>`.
 - `ws(handlers)` is replaced in client code with an object containing
   `connect(...args)`, which opens `ws://` or `wss://` to
@@ -170,10 +170,10 @@ src/admin/users.ts + deleteUser -> admin/users/delete-user
 Labels usually come from the assigned variable or object property name:
 
 ```ts
-export const getUser = action(async () => {});
+export const getUser = server(async () => {});
 
 export const api = {
-  saveUser: action(async () => {}),
+  saveUser: server(async () => {}),
 };
 ```
 
@@ -182,7 +182,7 @@ Duplicate endpoint names in the same file get a line/column suffix.
 
 ## Request Contract
 
-Generated `$action()` endpoints use this HTTP contract:
+Generated `$server()` endpoints use this HTTP contract:
 
 - Method: `POST`.
 - Path: `/__server-build/<endpoint>`.
@@ -237,24 +237,24 @@ On the server:
 - `ws.send(data)` JSON-stringifies data before sending it to that client.
 - The object returned by `$ws()` also has `send(data)`, which broadcasts
   to all currently open sockets for that endpoint. This is meant to be called
-  from sibling `$action()` or `$ws()` handlers in the same file.
+  from sibling `$server()` or `$ws()` handlers in the same file.
 
 ## Shared Module State
 
 Top-level declarations used by handlers are captured into a shared per-file
 server scope. That means state declared next to handlers is shared across
-requests and across sibling `$action()` and `$ws()` handlers from the
+requests and across sibling `$server()` and `$ws()` handlers from the
 same file in both dev and production.
 
 ```ts
 const countByUser = new Map<string, number>();
 
-export const increment = action(async (userId: string) => {
+export const increment = server(async (userId: string) => {
   countByUser.set(userId, (countByUser.get(userId) ?? 0) + 1);
   return countByUser.get(userId);
 });
 
-export const reset = action(async (userId: string) => {
+export const reset = server(async (userId: string) => {
   countByUser.delete(userId);
 });
 ```
@@ -283,9 +283,9 @@ Backend HTTP requests in dev are served through the Vite dev server:
 - Without `serverEntry`, plugin middleware handles `/__server-build/*`
   directly.
 - With `serverEntry`, the configured Hono app is loaded through
-  `server.ssrLoadModule()`, augmented once with generated action routes, and
+  `server.ssrLoadModule()`, augmented once with generated server routes, and
   called via `app.fetch()`. This lets user middleware run for generated
-  action routes, matching production behavior. Non-API `404` responses fall
+  server routes, matching production behavior. Non-API `404` responses fall
   through to Vite's normal middleware.
 
 WebSocket upgrades in dev hook the Vite HTTP server's `upgrade` event and use
@@ -309,7 +309,7 @@ Then the plugin's `writeBundle` hook generates and bundles the server:
 
 The generated production server:
 
-- Registers `POST /__server-build/*` for generated $action calls.
+- Registers `POST /__server-build/*` for generated $server calls.
 - Registers `app.all('/__server-build/*')` to reject non-POST API calls.
 - Uses the configured Hono app when `serverEntry` is present, otherwise creates
   a bare `new Hono()`.
@@ -372,7 +372,7 @@ src/index.ts
   Vite plugin entry point and lifecycle hooks.
 
 src/core/processor.ts
-  TypeScript AST transform. Finds $action()/$ws(), derives endpoints,
+  TypeScript AST transform. Finds $server()/$ws(), derives endpoints,
   collects imports and shared declarations, rewrites client code, and fills
   the registries.
 
@@ -385,7 +385,7 @@ src/dev-server/virtual-modules.ts
 
 src/dev-server/middleware.ts
   Converts Node requests/responses to Web Request/Response objects and handles
-  generated action requests in dev.
+  generated server requests in dev.
 
 src/dev-server/ws-upgrade.ts
   Handles dev ws upgrades with the ws package.

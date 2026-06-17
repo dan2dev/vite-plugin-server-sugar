@@ -1,5 +1,5 @@
 /**
- * Ambient declaration for the `$action()` macro injected by vite-plugin-server-build.
+ * Ambient declaration for the `$server()` macro injected by vite-plugin-server-build.
  *
  * - On the server the original function runs directly.
  * - In the browser it is replaced with a typed `fetch` wrapper.
@@ -8,11 +8,11 @@
  * automatically from the function literal you pass in.
  *
  * @example
- *   export const getUser = $action(async (params: { id: string }) => {
+ *   export const getUser = $server(async (params: { id: string }) => {
  *     return { name: "Alice", id: params.id };
  *   });
  *   // inferred as: (params: { id: string }) => Promise<{ name: string; id: string }>
  */
-declare function $action<Args extends unknown[], R>(
+declare function $server<Args extends unknown[], R>(
   fn: (...args: Args) => R | Promise<R>,
 ): (...args: Args) => Promise<Awaited<R>>;

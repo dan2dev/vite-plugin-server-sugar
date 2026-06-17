@@ -1,5 +1,5 @@
 import * as fc from 'fast-check';
-import type { ActionEntry, WsEntry, RuntimeImport } from '../../src/types';
+import type { ServerEntry, WsEntry, RuntimeImport } from '../../src/types';
 
 export { fc };
 
@@ -92,9 +92,9 @@ function arbRuntimeImport(): fc.Arbitrary<RuntimeImport> {
 }
 
 /**
- * Generates ActionEntry instances with realistic fields.
+ * Generates ServerEntry instances with realistic fields.
  */
-export function arbActionEntry(): fc.Arbitrary<ActionEntry> {
+export function arbServerEntry(): fc.Arbitrary<ServerEntry> {
   return fc.record({
     endpoint: arbEndpointName(),
     imports: fc.array(arbRuntimeImport(), { minLength: 0, maxLength: 3 }),
@@ -211,7 +211,7 @@ export function arbRegistryOps(): fc.Arbitrary<RegistryOp[]> {
 }
 
 /**
- * Generates TypeScript source code containing $action()/$ws() calls.
+ * Generates TypeScript source code containing $server()/$ws() calls.
  */
 export function arbTsSource(): fc.Arbitrary<string> {
   const importLine = arbIdentifierName().map(
@@ -219,11 +219,12 @@ export function arbTsSource(): fc.Arbitrary<string> {
   );
 
   const actionCall = fc
-    .tuple(arbIdentifierName(), arbIdentifierName())
+    .tuple(arbIdentifierName(), arbIdentifierName().filter(n => n !== 'if' && n !== 'for' && n !== 'while'))
     .map(
       ([varName, param]) =>
-        `const ${varName} = $action((${param}: string) => { return ${param}.toUpperCase(); });`,
+        `const ${varName} = $server((${param}: string) => { return ${param}.toUpperCase(); });`,
     );
+
 
   const wsCall = arbIdentifierName().map(
     (varName) =>
@@ -234,7 +235,7 @@ export function arbTsSource(): fc.Arbitrary<string> {
     .tuple(
       fc.array(importLine, { minLength: 0, maxLength: 3 }),
       fc.array(
-        fc.oneof(actionCall, wsCall),
+        fc.oneof(serverCall, wsCall),
         { minLength: 1, maxLength: 4 },
       ),
     )

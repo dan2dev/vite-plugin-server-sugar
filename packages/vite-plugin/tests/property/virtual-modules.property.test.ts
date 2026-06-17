@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { fc, arbActionEntry, arbWsEntry } from '../helpers/generators';
-import { loadVirtualModule, virtualActionFileId, runtimeImportSpecifier } from '../../src/dev-server/virtual-modules';
+import { fc, arbServerEntry, arbWsEntry } from '../helpers/generators';
+import { loadVirtualModule, virtualServerFileId, runtimeImportSpecifier } from '../../src/dev-server/virtual-modules';
 import { Registry } from '../../src/core/registry';
 import { RESOLVED_PREFIX, RESOLVED_FILE_PREFIX } from '../../src/constants';
-import { actionConstName, wsConstName } from '../../src/utils/crypto';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import { serverConstName, wsConstName } from '../../src/utils/crypto';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 describe('Virtual Modules Property Tests', () => {
   it('Property 22: Virtual Module Combined File Exports All Handler Constants', () => {
@@ -12,18 +12,18 @@ describe('Virtual Modules Property Tests', () => {
     // **Validates: Requirements 5.3**
     fc.assert(
       fc.property(
-        fc.array(arbActionEntry(), { minLength: 1, maxLength: 5 }),
+        fc.array(arbServerEntry(), { minLength: 1, maxLength: 5 }),
         fc.array(arbWsEntry(), { minLength: 0, maxLength: 3 }),
-        (actionEntries, wsEntries) => {
+        (serverEntries, wsEntries) => {
           // Force all entries to share the same file
-          const sharedFile = actionEntries[0].file;
-          for (const entry of actionEntries) entry.file = sharedFile;
+          const sharedFile = serverEntries[0].file;
+          for (const entry of serverEntries) entry.file = sharedFile;
           for (const entry of wsEntries) entry.file = sharedFile;
 
           // Make sure endpoints are unique
           const usedEndpoints = new Set<string>();
-          const uniqueBackend: ActionEntry[] = [];
-          for (const entry of actionEntries) {
+          const uniqueBackend: ServerEntry[] = [];
+          for (const entry of serverEntries) {
             if (!usedEndpoints.has(entry.endpoint)) {
               usedEndpoints.add(entry.endpoint);
               uniqueBackend.push(entry);
@@ -41,7 +41,7 @@ describe('Virtual Modules Property Tests', () => {
           if (totalHandlers === 0) return; // skip degenerate case
 
           // Set up registries
-          const registry = new Registry<ActionEntry>();
+          const registry = new Registry<ServerEntry>();
           const wsRegistry = new Registry<WsEntry>();
 
           const allEndpoints: string[] = [];
@@ -68,7 +68,7 @@ describe('Virtual Modules Property Tests', () => {
           const code = result!.code;
 
           // Build expected constant names
-          const expectedBackendConsts = uniqueBackend.map((e) => actionConstName(e.endpoint));
+          const expectedBackendConsts = uniqueBackend.map((e) => serverConstName(e.endpoint));
           const expectedWsConsts = uniqueWs.map((e) => wsConstName(e.endpoint));
           const allExpectedConsts = [...expectedBackendConsts, ...expectedWsConsts];
 
@@ -93,9 +93,9 @@ describe('Virtual Modules Property Tests', () => {
     // Feature: vite-plugin-quality-testing, Property 23: Virtual Module Per-Endpoint Re-Export Correctness
     // **Validates: Requirements 5.4**
     fc.assert(
-      fc.property(arbActionEntry(), (entry) => {
-        // Set up a registry with the generated action entry
-        const registry = new Registry<ActionEntry>();
+      fc.property(arbServerEntry(), (entry) => {
+        // Set up a registry with the generated server entry
+        const registry = new Registry<ServerEntry>();
         registry.set(entry.endpoint, entry);
         registry.registerFile(entry.file, [entry.endpoint]);
 
@@ -111,9 +111,9 @@ describe('Virtual Modules Property Tests', () => {
 
         const code = result!.code;
 
-        // The code should re-export the actionConstName as default
-        const constName = actionConstName(entry.endpoint);
-        const expectedFileModuleId = virtualActionFileId(entry.file);
+        // The code should re-export the serverConstName as default
+        const constName = serverConstName(entry.endpoint);
+        const expectedFileModuleId = virtualServerFileId(entry.file);
 
         // Verify the re-export pattern: export { <constName> as default } from "<per-file module>";
         expect(code).toContain(`${constName} as default`);
@@ -131,26 +131,26 @@ describe('Virtual Modules Property Tests', () => {
     // **Validates: Requirements 5.5**
     fc.assert(
       fc.property(
-        arbActionEntry(),
+        arbServerEntry(),
         arbWsEntry(),
-        (actionEntry, wsEntry) => {
+        (serverEntry, wsEntry) => {
           // Force same file and non-empty moduleDeclsJs
-          const sharedFile = actionEntry.file;
+          const sharedFile = serverEntry.file;
           wsEntry.file = sharedFile;
-          actionEntry.moduleDeclsJs = 'const shared = {};';
+          serverEntry.moduleDeclsJs = 'const shared = {};';
           wsEntry.moduleDeclsJs = 'const shared = {};';
 
           // Make sure endpoints are different
-          if (actionEntry.endpoint === wsEntry.endpoint) {
+          if (serverEntry.endpoint === wsEntry.endpoint) {
             wsEntry.endpoint = wsEntry.endpoint + '/ws';
           }
 
           // Set up registries
-          const registry = new Registry<ActionEntry>();
+          const registry = new Registry<ServerEntry>();
           const wsRegistry = new Registry<WsEntry>();
 
-          registry.set(actionEntry.endpoint, actionEntry);
-          registry.registerFile(sharedFile, [actionEntry.endpoint]);
+          registry.set(serverEntry.endpoint, serverEntry);
+          registry.registerFile(sharedFile, [serverEntry.endpoint]);
 
           wsRegistry.set(wsEntry.endpoint, wsEntry);
           wsRegistry.registerFile(sharedFile, [wsEntry.endpoint]);

@@ -3,16 +3,16 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
 
 import type { ServerBuildPluginOptions } from "./types";
-import type { ActionEntry, WsEntry } from "./types";
+import type { ServerEntry, WsEntry } from "./types";
 import { Registry } from "./core/registry";
 import { processFile } from "./core/processor";
 import {
-  invalidateActionFileModules,
-  invalidateActionModules,
+  invalidateServerFileModules,
+  invalidateServerModules,
   invalidateWsModules,
 } from "./dev-server/hmr";
 import {
-  handleGeneratedActionRequest,
+  handleGeneratedServerRequest,
   loadServerApp,
   nodeRequestToWeb,
   requestUrl,
@@ -22,7 +22,7 @@ import {
   loadVirtualModule,
   resolveVirtualId,
 } from "./dev-server/virtual-modules";
-import { setupWebsocketUpgrade } from "./dev-server/ws-upgrade";
+import { setupWsUpgrade } from "./dev-server/ws-upgrade";
 import { generateBundleContent } from "./build/bundle-generator";
 import { bundleServerSource, compileServer } from "./build/bundler";
 import {
@@ -42,7 +42,7 @@ export function serverBuildPlugin(
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
   const compile = options.compile === true;
-  const registry = new Registry<ActionEntry>();
+  const registry = new Registry<ServerEntry>();
   const wsRegistry = new Registry<WsEntry>();
 
   let root = process.cwd();
@@ -130,7 +130,7 @@ export function serverBuildPlugin(
       scanDir(root);
       if (registry.size > 0) {
         console.log(
-          `[server-build] Registered ${registry.size} $action endpoints.`,
+          `[server-build] Registered ${registry.size} $server endpoints.`,
         );
       }
       if (wsRegistry.size > 0) {
@@ -161,11 +161,11 @@ export function serverBuildPlugin(
         );
       }
 
-      setupWebsocketUpgrade(server, wsRegistry);
+      setupWsUpgrade(server, wsRegistry);
 
       if (serverEntry) {
         // Track Hono app instances that have already been augmented with
-        // action routes so we don't re-register on every request. When HMR
+        // server routes so we don't re-register on every request. When HMR
         // invalidates the server entry, a new app instance is created and
         // routes are re-registered automatically.
         const augmentedApps = new WeakSet<object>();
@@ -179,9 +179,9 @@ export function serverBuildPlugin(
             );
             if (!app) return next();
 
-            // Dynamically register action routes on the user's Hono app so
+            // Dynamically register server routes on the user's Hono app so
             // that user-defined middleware (e.g. app.all("*", ...)) also runs
-            // for action requests, matching the production build behaviour.
+            // for server requests, matching the production build behaviour.
             if (!augmentedApps.has(app as object)) {
               augmentedApps.add(app as object);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -201,7 +201,7 @@ export function serverBuildPlugin(
                 if (!registry.has(endpoint)) {
                   return c.json(
                     {
-                      error: `No action handler registered: '${endpoint}'`,
+                      error: `No server handler registered: '${endpoint}'`,
                     },
                     404,
                   );
@@ -251,7 +251,7 @@ export function serverBuildPlugin(
             const pathname = new URL(webRequest.url).pathname;
             const response = await app.fetch(webRequest);
 
-            // For action API paths the Hono app is the authority;
+            // For server API paths the Hono app is the authority;
             // always write its response (including 404s).  For other
             // paths, a 404 means Hono didn't handle the request so we
             // fall through to Vite's internal middleware (source files,
@@ -271,7 +271,7 @@ export function serverBuildPlugin(
           }
         });
       } else {
-        // No server entry: handle action requests directly in middleware
+        // No server entry: handle server requests directly in middleware
         // (no user Hono app to route them through).
         server.middlewares.use(async (req, res, next) => {
           const pathname = requestUrl(req).pathname;
@@ -286,7 +286,7 @@ export function serverBuildPlugin(
             return;
           }
 
-          await handleGeneratedActionRequest(
+          await handleGeneratedServerRequest(
             server,
             req,
             res,
@@ -308,7 +308,7 @@ export function serverBuildPlugin(
               root,
               emitWarnings: true,
             });
-            invalidateActionModules(server, [
+            invalidateServerModules(server, [
               ...previousEndpoints,
               ...registry.getEndpointsForFile(file),
             ]);
@@ -316,13 +316,13 @@ export function serverBuildPlugin(
               ...previousWsEndpoints,
               ...wsRegistry.getEndpointsForFile(file),
             ]);
-            invalidateActionFileModules(server, [file]);
+            invalidateServerFileModules(server, [file]);
           } catch {
             registry.unregisterFile(file);
             wsRegistry.unregisterFile(file);
-            invalidateActionModules(server, previousEndpoints);
+            invalidateServerModules(server, previousEndpoints);
             invalidateWsModules(server, previousWsEndpoints);
-            invalidateActionFileModules(server, [file]);
+            invalidateServerFileModules(server, [file]);
           }
         }
       });
@@ -332,9 +332,9 @@ export function serverBuildPlugin(
         const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
         registry.unregisterFile(file);
         wsRegistry.unregisterFile(file);
-        invalidateActionModules(server, previousEndpoints);
+        invalidateServerModules(server, previousEndpoints);
         invalidateWsModules(server, previousWsEndpoints);
-        invalidateActionFileModules(server, [file]);
+        invalidateServerFileModules(server, [file]);
       });
     },
 

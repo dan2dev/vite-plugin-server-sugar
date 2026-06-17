@@ -16,14 +16,14 @@ const state = {
 };
 // console.log(state.name);
 
-export const getTodos = $action(async () => {
+export const getTodos = $server(async () => {
   console.log("getTodos ------------------");
   return db
     .query<Todo, []>("SELECT * FROM todos ORDER BY created_at DESC")
     .all();
 });
 
-export const getSomeData = $action(async () => {
+export const getSomeData = $server(async () => {
   state.count1 += 1;
   const todos = await getTodos();
   return {
@@ -33,18 +33,18 @@ export const getSomeData = $action(async () => {
   };
 });
 
-export const addTodo = $action(async (text: string, someOtherValue: string) => {
+export const addTodo = $server(async (text: string, someOtherValue: string) => {
   console.log("some other value", someOtherValue);
   return db
     .query<Todo, [string]>("INSERT INTO todos (text) VALUES (?) RETURNING *")
     .get(text)!;
 });
 
-export const toggleTodo = $action(async (id: number) => {
+export const toggleTodo = $server(async (id: number) => {
   console.log("toggleTodo", id);
   db.query("UPDATE todos SET done = 1 - done WHERE id = ?").run(id);
 });
 
-export const deleteTodo = $action(async (id: number) => {
+export const deleteTodo = $server(async (id: number) => {
   db.query("DELETE FROM todos WHERE id = ?").run(id);
 });

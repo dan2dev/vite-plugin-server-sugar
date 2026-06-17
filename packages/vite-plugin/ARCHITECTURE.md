@@ -13,34 +13,34 @@ The plugin lets you write server-side functions inline in any `.ts`/`.tsx`
 file, alongside client code, using two macros:
 
 ```ts
-export const getTodos = backend(async () => {
+export const getTodos = server(async () => {
   return db.query("SELECT * FROM todos").all();
 });
 
-export const chat = websocket({
+export const chat = ws({
   onOpen(ws) { /* ... */ },
   onMessage(ws, data) { /* ... */ },
   onClose(ws) { /* ... */ },
 });
 ```
 
-`backend()` and `websocket()` are **not real runtime functions** — there is no
+`server()` and `ws()` are **not real runtime functions** — there is no
 implementation that ships to either side as-is. They are ambient globals
-(declared in [`backend.d.ts`](./backend.d.ts) / [`websocket.d.ts`](./websocket.d.ts)
+(declared in [`server.d.ts`](./server.d.ts) / [`ws.d.ts`](./ws.d.ts)
 purely for TypeScript's benefit) that the plugin recognizes as syntax and
 rewrites at compile time:
 
 - **On the client bundle**, the call expression is replaced with a thin
-  wrapper: `backend(fn)` → an async function that `fetch()`es a generated API
-  endpoint; `websocket(handlers)` → `{ connect(...args) }` that opens a
+  wrapper: `server(fn)` → an async function that `fetch()`es a generated API
+  endpoint; `ws(handlers)` → `{ connect(...args) }` that opens a
   `WebSocket` to a generated endpoint.
 - **On the server**, the original function/handlers run as-is (modulo
   TypeScript-to-JS stripping). The server never sees client code or the
-  `backend`/`websocket` call wrapper — it gets its own generated module built
+  `server`/`ws` call wrapper — it gets its own generated module built
   from the captured AST.
 
 Because the rewrite happens at the AST level and reuses the literal source of
-the function, argument types, return types, and (for `websocket()`) message
+the function, argument types, return types, and (for `ws()`) message
 types are inferred end-to-end — there's no schema, codegen step, or RPC
 definition file to keep in sync.
 
@@ -49,13 +49,13 @@ Users add the ambient types via `tsconfig.json`:
 ```json
 {
   "compilerOptions": {
-    "types": ["vite-plugin-server-build/backend", "vite-plugin-server-build/websocket"]
+    "types": ["vite-plugin-server-build/server", "vite-plugin-server-build/ws"]
   }
 }
 ```
 
 These resolve through the package's `exports` map
-(`./backend` → `backend.d.ts`, `./websocket` → `websocket.d.ts`) to
+(`./server` → `server.d.ts`, `./ws` → `ws.d.ts`) to
 types-only entry points; nothing is imported at runtime.
 
 ## 2. Source layout
@@ -66,7 +66,7 @@ src/
   types.ts                   Shared types (BackendEntry, WebSocketEntry, options)
   constants.ts                Virtual module id prefixes, API path prefixes
   core/
-    processor.ts             The AST transform: finds backend()/websocket() calls,
+    processor.ts             The AST transform: finds server()/ws() calls,
                               rewrites them, extracts handler source, fills the registries
     registry.ts               Generic endpoint -> entry map, indexed by source file
     transpiler.ts             Thin wrapper around ts.transpileModule
@@ -74,10 +74,10 @@ src/
     bundle-generator.ts       Emits the production server source (single string of JS)
     bundler.ts                Bundles that source with rolldown; optional Bun --compile
   dev-server/
-    middleware.ts             Node<->Web Request/Response adapters; backend dispatch (no serverEntry case)
+    middleware.ts             Node<->Web Request/Response adapters; server dispatch (no serverEntry case)
     virtual-modules.ts        Per-file/per-endpoint virtual module content for Vite's dev SSR graph
     hmr.ts                    Selective module-graph invalidation on file change
-    ws-upgrade.ts              In-process HTTP upgrade handling for websocket() in dev (using `ws`)
+    ws-upgrade.ts              In-process HTTP upgrade handling for ws() in dev (using `ws`)
   utils/
     ast.ts                    TypeScript AST helpers (free-variable analysis, name inference)
     crypto.ts                 Deterministic name generation (kebab-case, hashed const names)
@@ -95,26 +95,26 @@ and returned `{ code, map }` out.
 
 Steps, for a given file:
 
-1. **Fast bail-out**: if the source doesn't contain `backend(` or
-   `websocket(` textually, unregister the file and return `null` (no
+1. **Fast bail-out**: if the source doesn't contain `server(` or
+   `ws(` textually, unregister the file and return `null` (no
    transform). This keeps the plugin cheap for the vast majority of files in
    a project that don't declare server endpoints.
 2. **Parse** the file with the TypeScript compiler (`ts.createSourceFile`),
    target `Latest`, in non-strict (`setParentNodes: true`) mode so `.parent`
    pointers are populated for the AST walk.
 3. **Walk the AST** looking for `CallExpression`s whose callee identifier is
-   exactly `backend` or `websocket`, with a single function-like (`backend`)
-   or object-literal (`websocket`, containing at least one of
+   exactly `server` or `ws`, with a single function-like (`server`)
+   or object-literal (`ws`, containing at least one of
    `onOpen`/`onMessage`/`onClose`) argument. Anything else (wrong arg shape,
    no handlers) is left untouched — this is what makes shadowing safe, e.g. a
-   local variable named `backend` that isn't a call.
+   local variable named `server` that isn't a call.
 4. **Derive a stable endpoint name** for each call via
    `endpointName(file, label)`:
    - `label` comes from `inferBackendLabel()` (in `utils/ast.ts`), which walks
      up the call's ancestors to build a dotted path from naming context:
-     `const x = backend(...)` → `x`; `{ foo: backend(...) }` → `foo`; nested
+     `const x = server(...)` → `x`; `{ foo: server(...) }` → `foo`; nested
      in arrays/conditionals/returns/call-args contributes positional segments
-     (`arg0`, `0`, `true`, `return`); falls back to `` `backend@line:col` ``
+     (`arg0`, `0`, `true`, `return`); falls back to `` `server@line:col` ``
      if no naming context is found at all.
    - The file's path relative to `root` (with a leading `src/` stripped) is
      joined with the label, and every path segment is kebab-cased
@@ -127,8 +127,8 @@ Steps, for a given file:
    (`core/transpiler.ts`) — `ts.transpileModule` with `target: ESNext`,
    stripping `"use strict"` and the trailing statement semicolon so the
    result is usable as an inline expression. This is **type erasure only**;
-   no bundling, no scope renaming. `backend()`'s argument is transpiled as an
-   expression; `websocket()`'s object-literal argument is wrapped in parens
+   no bundling, no scope renaming. `server()`'s argument is transpiled as an
+   expression; `ws()`'s object-literal argument is wrapped in parens
    first so `ts.transpileModule` doesn't misparse a leading `{` as a block.
 6. **Determine runtime imports the handler actually needs**
    (`collectRuntimeImports`): for every import declaration in the file,
@@ -139,7 +139,7 @@ Steps, for a given file:
    entry — this becomes the import line re-emitted in the generated server
    module.
 7. **Detect the original binding name** when the call is the direct
-   initializer of a `const x = backend(...)`/`const x = websocket(...)`
+   initializer of a `const x = server(...)`/`const x = ws(...)`
    declaration (`originalNameOf`). This is later used so sibling handlers in
    the same file can call each other by their natural name inside the
    generated module (see §5).
@@ -150,23 +150,23 @@ Steps, for a given file:
    `Bun`, `fetch`, `console`, typed-array constructors, etc.). These are
    candidates for module-level state capture (§4).
 9. **Replace the call expression in the client-facing output**:
-   - `backend(fn)` → `` async (...args) => __backendFetch("/__server-build/<endpoint>", JSON.stringify(args)) ``
-   - `websocket(handlers)` → `` { connect: (...args) => __websocketConnect("/__server-build-ws/<endpoint>", args) } ``
+   - `server(fn)` → `` async (...args) => __serverFetch("/__server-build/<endpoint>", JSON.stringify(args)) ``
+   - `ws(handlers)` → `` { connect: (...args) => __wsConnect("/__server-build-ws/<endpoint>", args) } ``
 
-   `__backendFetch`/`__websocketConnect` are imported from internal virtual
-   modules (`virtual:server-build/backend-fetch`,
-   `virtual:server-build/websocket-connect`) inserted right after the file's
+   `__serverFetch`/`__wsConnect` are imported from internal virtual
+   modules (`virtual:server-build/server-fetch`,
+   `virtual:server-build/ws-connect`) inserted right after the file's
    existing import block. Local names are de-duplicated against the file's
    own identifiers (`uniqueLocalName`) so there's never a collision with a
-   user-defined `__backendFetch`, etc.
+   user-defined `__serverFetch`, etc.
 10. **Strip now-dead imports**: after rewriting, any import whose only uses
-    were inside a rewritten `backend()`/`websocket()` call (and nowhere else
+    were inside a rewritten `server()`/`ws()` call (and nowhere else
     in the file) is removed from the client output — it would otherwise be
     unused/unresolved in the browser bundle (e.g. a server-only DB driver).
     This is computed by walking the file a second time
     (`visitOutside`/`outsideNames`) collecting reference identifiers found
     **outside** the ranges of rewritten calls.
-11. **Strip `declare const backend: ...;` / `declare function websocket(...): ...;`
+11. **Strip `declare const server: ...;` / `declare function ws(...): ...;`
     shims** if a file declares its own local ambient shim instead of relying
     on the package's ambient `.d.ts` (regex-based, best-effort).
 12. **Compute shared module-level declarations** (`collectModuleDeclsJs`, see
@@ -177,7 +177,7 @@ Steps, for a given file:
     a known global, nor module-level-captured — that identifier will be
     `undefined` on the server at runtime, which is almost always a mistake
     (e.g. accidentally referencing a React state variable from inside
-    `backend()`).
+    `server()`).
 14. **Register** every discovered entry into the `Registry` (keyed by
     endpoint, indexed by file for incremental re-processing), then apply all
     collected text replacements via `rolldown`'s `MagicString` and return the
@@ -190,7 +190,7 @@ for it.
 
 ## 4. Module-level state sharing (the "IIFE mode")
 
-A file can have ordinary top-level code besides its `backend()`/`websocket()`
+A file can have ordinary top-level code besides its `server()`/`ws()`
 declarations — e.g. a counter, an in-memory `Set` of connections, a parsed
 config object. Handlers that close over such state need that state to be
 **shared across calls and across sibling handlers**, not re-initialized per
@@ -201,7 +201,7 @@ top-level statements must be hoisted into a shared scope on the server:
 
 1. Candidate statements are every top-level statement that isn't an
    import/export-declaration/interface/type-alias/`declare`/module
-   declaration, and that doesn't itself contain a `backend()`/`websocket()`
+   declaration, and that doesn't itself contain a `server()`/`ws()`
    call.
 2. For each candidate, compute the names it **binds** at its top level
    (`statementTopLevelBindings` — e.g. `const x = ...` → `x`; destructuring
@@ -223,11 +223,11 @@ other shared state — because B's compiled-server identity needs to be a
 named local that A's compiled body can call directly.
 
 If a file needs shared state and/or has sibling cross-refs, **every**
-handler from that file (both `backend()` and `websocket()` ones) is wrapped
+handler from that file (both `server()` and `ws()` ones) is wrapped
 together in a single IIFE:
 
 ```js
-const { __backend_x_ab12cd34, __ws_chat_5566ee } = (() => {
+const { __server_x_ab12cd34, __ws_chat_5566ee } = (() => {
   // moduleDeclsJs: hoisted shared declarations
   const connections = new Set();
   const history = [];
@@ -237,7 +237,7 @@ const { __backend_x_ab12cd34, __ws_chat_5566ee } = (() => {
   const chat = __wrapWs("chat/chat", { onOpen(ws) {...}, ... });
 
   return {
-    __backend_x_ab12cd34: getChatHistory,
+    __server_x_ab12cd34: getChatHistory,
     __ws_chat_5566ee: chat,
   };
 })();
@@ -267,11 +267,11 @@ resolved/loaded via the plugin's `resolveId`/`load` hooks:
 
 | Virtual id | Resolves to | Purpose |
 |---|---|---|
-| `virtual:server-build/backend-fetch` | `\0virtual:server-build/backend-fetch` | Exports `__backendFetch`, the client `fetch()` wrapper used by rewritten `backend()` calls. |
-| `virtual:server-build/websocket-connect` | `\0virtual:server-build/websocket-connect` | Exports `__websocketConnect`, the client `WebSocket` wrapper used by rewritten `websocket()` calls. |
-| `virtual:server-build/backend-file/<encoded file path>` | `\0...backend-file/<encoded>` | The **combined per-file module**: every `backend()`/`websocket()` handler from one source file, re-emitted as real JS (IIFE-wrapped or not per §4), each exported under a hashed const name. |
-| `virtual:server-build/backend/<endpoint>` | `\0...backend/<endpoint>` | Re-exports a single backend handler's hashed const, as `default`, from its file's combined module. |
-| `virtual:server-build/websocket/<endpoint>` | `\0...websocket/<endpoint>` | Same, for a websocket handler. |
+| `virtual:server-build/server-fetch` | `\0virtual:server-build/server-fetch` | Exports `__serverFetch`, the client `fetch()` wrapper used by rewritten `server()` calls. |
+| `virtual:server-build/ws-connect` | `\0virtual:server-build/ws-connect` | Exports `__wsConnect`, the client `WebSocket` wrapper used by rewritten `ws()` calls. |
+| `virtual:server-build/server-file/<encoded file path>` | `\0...server-file/<encoded>` | The **combined per-file module**: every `server()`/`ws()` handler from one source file, re-emitted as real JS (IIFE-wrapped or not per §4), each exported under a hashed const name. |
+| `virtual:server-build/server/<endpoint>` | `\0...server/<endpoint>` | Re-exports a single server handler's hashed const, as `default`, from its file's combined module. |
+| `virtual:server-build/ws/<endpoint>` | `\0...ws/<endpoint>` | Same, for a ws handler. |
 
 The per-endpoint modules exist so the dev middleware and the WS upgrade
 handler can `server.ssrLoadModule(VIRTUAL_PREFIX + endpoint)` to get exactly
@@ -295,7 +295,7 @@ Two different code paths exist in `configureServer`, depending on whether
   `app` export with a Hono-shaped `.fetch`) is loaded and, on first use,
   augmented in place with the same `/__server-build/*` POST route (and an
   `app.all` 405 fallback for other methods) so that **user-defined
-  middleware also runs for backend requests** — matching what the
+  middleware also runs for server requests** — matching what the
   production bundle does (§6). Every request is converted from Node's
   `IncomingMessage` to a Web `Request` (`nodeRequestToWeb`), routed through
   `app.fetch()`, and the Web `Response` is written back
@@ -304,7 +304,7 @@ Two different code paths exist in `configureServer`, depending on whether
   gets a turn; a `404` *inside* the API prefix is treated as authoritative
   (the user's app chose to 404 it).
 
-`websocket()` connections are handled entirely separately from the Hono app
+`ws()` connections are handled entirely separately from the Hono app
 (Hono doesn't speak WebSocket upgrades) — see §5.4.
 
 ### 5.3 File watching & HMR
@@ -324,7 +324,7 @@ Two different code paths exist in `configureServer`, depending on whether
 Invalidation is done via Vite's internal `ModuleNode.invalidateModule()` with
 `isHmr: true` so a subsequent `ssrLoadModule()` call re-evaluates the module
 instead of serving a cached instance — this is what makes edits to a
-`backend()`/`websocket()` body take effect on the very next request/message
+`server()`/`ws()` body take effect on the very next request/message
 without a full server restart.
 
 ### 5.4 WebSocket upgrades in dev
@@ -341,7 +341,7 @@ middleware stack only handles regular HTTP, not the WS handshake) using the
 3. Parse `connect()`-supplied args from the `?args=` query parameter (the
    client wrapper serializes its `connect(...args)` call into this param —
    see §5.5).
-4. `wss.handleUpgrade(...)`, then `ssrLoadModule` the per-endpoint websocket
+4. `wss.handleUpgrade(...)`, then `ssrLoadModule` the per-endpoint ws
    virtual module to get the `{ onOpen, onMessage, onClose }` handlers.
 5. Wrap the raw socket: expose `.args` (the parsed connect args), and
    override `.send` to JSON-stringify before sending (mirrors the production
@@ -357,7 +357,7 @@ middleware stack only handles regular HTTP, not the WS handshake) using the
    fails).
 
 A `console.error("[ws-debug] ...")` line currently fires on every upgrade
-attempt regardless of whether it matches a websocket endpoint — this is
+attempt regardless of whether it matches a ws endpoint — this is
 leftover debug instrumentation, not intentional log output.
 
 **Why connection tracking lives on `globalThis`:** in dev mode, the per-file
@@ -374,15 +374,15 @@ generator just uses a plain top-level `Map` instead.
 
 ### 5.5 Client-side helpers
 
-`__backendFetch(url, jsonBody)` (served by the
-`virtual:server-build/backend-fetch` virtual module): POSTs the JSON body to
+`__serverFetch(url, jsonBody)` (served by the
+`virtual:server-build/server-fetch` virtual module): POSTs the JSON body to
 `url`, throws an `Error` with the server's `{ error }` message (or status
 text) on a non-OK response, returns the parsed JSON body (or `undefined` for
 an empty response, matching the server's `204` for `undefined`-returning
 handlers).
 
-`__websocketConnect(url, args)` (served by
-`virtual:server-build/websocket-connect`): builds a `ws(s)://` URL relative
+`__wsConnect(url, args)` (served by
+`virtual:server-build/ws-connect`): builds a `ws(s)://` URL relative
 to the current page, encodes `args` into a `?args=` query param as JSON,
 opens the socket, and returns `{ send, onMessage, onClose, close, readyState }`
 — `send`/incoming messages are JSON-(de)serialized transparently.
@@ -403,7 +403,7 @@ final client output directory to serve static assets from it).
    no incremental server output).
 3. `generateBundleContent()` — see §6.2 — produces the entire server as one
    JS source string, or `null` if there's nothing to generate (no
-   `backend()`/`websocket()` handlers anywhere **and** no `serverEntry`
+   `server()`/`ws()` handlers anywhere **and** no `serverEntry`
    configured).
 4. `bundleServerSource()` — see §6.3 — bundles that string (plus whatever it
    imports) into `dist/server/server.mjs` using `rolldown`.
@@ -442,14 +442,14 @@ Key construction details:
   `hasSiblingCrossRefs` / `originalName` fields computed once by the
   processor.
 - **Backend dispatch route**: `app.post('/__server-build/*', ...)` — decode
-  the endpoint from the URL, look it up in a generated `__backendHandlers`
+  the endpoint from the URL, look it up in a generated `__serverHandlers`
   endpoint→function map, validate content-type is JSON (or absent), parse
   the body as an args array (default `[]` if empty), call the handler,
   respond `204` for `undefined` or JSON otherwise, `500` with `{ error:
   message }` on a thrown error. A trailing `app.all('/__server-build/*', ...)`
   rejects any non-POST method with `405` + `Allow: POST`.
 - **Static asset serving**: registered as `app.use("*", ...)` (GET/HEAD
-  only) *after* the backend route so it never shadows API requests. Resolves
+  only) *after* the server route so it never shadows API requests. Resolves
   the client root relative to the running module's own location — using
   `import.meta.url` when running as a normal ESM file, or `process.execPath`
   when running inside a compiled Bun executable (detected by the URL
@@ -461,15 +461,15 @@ Key construction details:
   long-cache headers for anything under `/assets/`, short-cache otherwise.
   Falls through to a SPA fallback (`index.html`) for any other GET that
   didn't match a static file.
-- **WebSocket support**: only emitted if there's at least one `websocket()`
+- **WebSocket support**: only emitted if there's at least one `ws()`
   handler anywhere. A top-level `__wsConnections` `Map` plus `__wrapWs()`
   (same shape as the dev-mode helper, §4) are emitted, and the final
   `Bun.serve({...})` call's `fetch` checks the URL against
   `WS_API_PREFIX` first — parsing `?args=`, calling `server.upgrade(req,
   { data: { endpoint, args } })` — before falling back to `app.fetch(req)`
-  for everything else. The `websocket: { open, message, close }` handlers
+  for everything else. The `ws: { open, message, close }` handlers
   dispatch to the right per-endpoint handler object via a generated
-  `__websocketHandlers` map, tracking/untracking the open connection set and
+  `__wsHandlers` map, tracking/untracking the open connection set and
   JSON (de)serializing messages, mirroring `ws-upgrade.ts`'s dev-mode
   behavior exactly.
 - **Port resolution**: reads `Bun.env.PORT`, falls back to the configured
@@ -552,13 +552,13 @@ dist/
 
 Run with `bun dist/server/server.mjs` (reads `PORT` from env, defaults to
 the configured `port`) or directly execute one of the compiled binaries.
-Both serve the client build as static files *and* the backend API from the
+Both serve the client build as static files *and* the server API from the
 same process/port.
 
 ## 7. The plugin's Vite hooks, end to end
 
 [`src/index.ts`](./src/index.ts) is the composition root — it owns the two
-`Registry` instances (one for `backend()`, one for `websocket()`) and wires
+`Registry` instances (one for `server()`, one for `ws()`) and wires
 every module above into Vite's plugin lifecycle:
 
 | Hook | What it does |
@@ -568,7 +568,7 @@ every module above into Vite's plugin lifecycle:
 | `buildStart` | Clears both registries and does a synchronous recursive directory scan (`scanDir`, skipping `node_modules`/`.git`/the dist output dir) calling `processFile` on every `.ts`/`.tsx` file, so the registries are fully populated **before** Vite starts resolving/loading any module — required so `resolveId`/`load` can serve virtual modules from the very first request. |
 | `resolveId` | Delegates to `resolveVirtualId` — recognizes the plugin's virtual id namespaces. |
 | `load` | Delegates to `loadVirtualModule` — serves the synthesized module content described in §5.1. |
-| `configureServer` | Dev-only: re-scans (in case files changed between `buildStart` and server start), sets up the WS upgrade handler (§5.4), installs the backend request middleware — either standalone or layered onto a `serverEntry` Hono app (§5.2) — and registers the file watcher listeners (§5.3). |
+| `configureServer` | Dev-only: re-scans (in case files changed between `buildStart` and server start), sets up the WS upgrade handler (§5.4), installs the server request middleware — either standalone or layered onto a `serverEntry` Hono app (§5.2) — and registers the file watcher listeners (§5.3). |
 | `transform` | The main per-file hook in both dev and build: skips `node_modules` and the plugin's own virtual/resolved ids, otherwise calls `processFile` (without `emitWarnings`, since warnings are already emitted once via the `buildStart`/watcher paths) and returns the rewritten client code. |
 | `writeBundle` | Build-only: generates and bundles the production server, optionally compiles standalone binaries — see §6. |
 

@@ -42,8 +42,8 @@ describe('Endpoint Naming', () => {
         (relFilePath, root, handlerName) => {
           const fileId = `${root}/${relFilePath}`;
 
-          // Build a source file with a $action() call assigned to `handlerName`
-          const source = `const ${handlerName} = $action((arg: string) => arg);`;
+          // Build a source file with a $server() call assigned to `handlerName`
+          const source = `const ${handlerName} = $server((arg: string) => arg);`;
 
           // First processing pass
           const registry1 = new Registry();
@@ -98,11 +98,11 @@ describe('Endpoint Naming', () => {
 
           const fileId = `${root}/src/handlers.ts`;
 
-          // Build source with multiple $action() calls
+          // Build source with multiple $server() calls
           const source = uniqueNames
             .map(
               (name, i) =>
-                `const ${name}_h${i} = $action((x: string) => x + "${name}");`,
+                `const ${name}_h${i} = $server((x: string) => x + "${name}");`,
             )
             .join('\n');
 
@@ -138,8 +138,8 @@ describe('Endpoint Naming', () => {
         const wsRegistry = new Registry();
         const fileId = '/project/src/handlers.ts';
 
-        // Create a source file with a named const variable assigned to $action()
-        const source = `const ${varName} = $action(() => null);`;
+        // Create a source file with a named const variable assigned to $server()
+        const source = `const ${varName} = $server(() => null);`;
 
         const result = processFile(source, fileId, {
           registry,
@@ -147,7 +147,7 @@ describe('Endpoint Naming', () => {
           root: '/project',
         });
 
-        // The processor should produce output (file has a $action() call)
+        // The processor should produce output (file has a $server() call)
         if (result === null) return;
 
         // Get the registered endpoints for this file

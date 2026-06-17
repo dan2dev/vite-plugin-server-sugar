@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 let tempDir: string;
 
@@ -17,7 +17,7 @@ afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function makeActionEntry(overrides: Partial<ActionEntry> & { endpoint: string; file: string }): ActionEntry {
+function makeServerEntry(overrides: Partial<ServerEntry> & { endpoint: string; file: string }): ServerEntry {
   return {
     imports: [],
     fnJs: '(args) => args',
@@ -41,9 +41,9 @@ function makeWsEntry(overrides: Partial<WsEntry> & { endpoint: string; file: str
 
 describe('Bundle Generator Output Structure', () => {
   describe('Backend entries produce Hono POST route for /__server-build/*', () => {
-    it('should produce a POST route for /__server-build/* when action entries exist', () => {
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry({
+    it('should produce a POST route for /__server-build/* when server entries exist', () => {
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry({
         endpoint: 'api/get-todos',
         file: join(tempDir, 'src/todos.ts'),
         fnJs: '(id) => ({ id })',
@@ -69,9 +69,9 @@ describe('Bundle Generator Output Structure', () => {
     });
   });
 
-  describe('Websocket entries produce Bun.serve config with fetch and ws block', () => {
+  describe('Ws entries produce Bun.serve config with fetch and ws block', () => {
     it('should produce Bun.serve with fetch and ws lifecycle handlers', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const wsEntry = makeWsEntry({
         endpoint: 'ws/chat',
@@ -100,9 +100,9 @@ describe('Bundle Generator Output Structure', () => {
     });
   });
 
-  describe('Null return when no action, ws, or server entries exist', () => {
+  describe('Null return when no server, ws, or server entries exist', () => {
     it('should return null when registries are empty and no serverEntry', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
 
       const result = generateBundleContent(
         registry,
@@ -117,7 +117,7 @@ describe('Bundle Generator Output Structure', () => {
     });
 
     it('should return null when registries are empty and wsRegistry is also empty', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
       const result = generateBundleContent(
@@ -136,9 +136,9 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('Unique __dep_N aliases for import collisions across files', () => {
     it('should produce unique __dep_N aliases when two files import different modules under the same local name', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
 
-      const entry1 = makeActionEntry({
+      const entry1 = makeServerEntry({
         endpoint: 'api/file1-handler',
         file: join(tempDir, 'src/file1.ts'),
         fnJs: '(x) => x',
@@ -152,7 +152,7 @@ describe('Bundle Generator Output Structure', () => {
         ],
       });
 
-      const entry2 = makeActionEntry({
+      const entry2 = makeServerEntry({
         endpoint: 'api/file2-handler',
         file: join(tempDir, 'src/file2.ts'),
         fnJs: '(y) => y',
@@ -192,17 +192,17 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('IIFE wrapping for same-file entries with moduleDeclsJs', () => {
     it('should wrap handlers in an IIFE when moduleDeclsJs is set', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
 
       const sharedDecls = 'const counter = 0;';
-      const entry1 = makeActionEntry({
+      const entry1 = makeServerEntry({
         endpoint: 'api/handler-a',
         file: join(tempDir, 'src/shared.ts'),
         fnJs: '() => counter',
         originalName: 'handlerA',
         moduleDeclsJs: sharedDecls,
       });
-      const entry2 = makeActionEntry({
+      const entry2 = makeServerEntry({
         endpoint: 'api/handler-b',
         file: join(tempDir, 'src/shared.ts'),
         fnJs: '() => counter + 1',
@@ -236,7 +236,7 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('Error thrown when serverEntry file does not exist', () => {
     it('should throw when serverEntry is configured but file does not exist', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const nonExistentPath = join(tempDir, 'non-existent-server.ts');
 
       expect(() =>
@@ -254,8 +254,8 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('process.execPath / fileURLToPath dual-path for static file resolution', () => {
     it('should use process.execPath for compiled Bun and fileURLToPath for normal ESM', () => {
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry({
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry({
         endpoint: 'api/hello',
         file: join(tempDir, 'src/hello.ts'),
         fnJs: '() => "hello"',
@@ -283,8 +283,8 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('Directory traversal prevention', () => {
     it('should produce code that rejects paths escaping client root', () => {
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry({
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry({
         endpoint: 'api/safe',
         file: join(tempDir, 'src/safe.ts'),
         fnJs: '() => null',
@@ -314,8 +314,8 @@ describe('Bundle Generator Output Structure', () => {
 
   describe('PORT validation (integer between 1 and 65535)', () => {
     it('should produce code that validates PORT is a valid integer between 1 and 65535', () => {
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry({
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry({
         endpoint: 'api/port-test',
         file: join(tempDir, 'src/port.ts'),
         fnJs: '() => "ok"',
@@ -344,8 +344,8 @@ describe('Bundle Generator Output Structure', () => {
     });
 
     it('should embed the configured port as fallback', () => {
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry({
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry({
         endpoint: 'api/custom-port',
         file: join(tempDir, 'src/custom.ts'),
         fnJs: '() => "ok"',

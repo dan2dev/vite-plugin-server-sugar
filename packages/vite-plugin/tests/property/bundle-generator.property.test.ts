@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
-import type { ActionEntry, WsEntry } from '../../src/types';
-import { arbActionEntry, arbWsEntry, arbIdentifierName } from '../helpers/generators';
+import type { ServerEntry, WsEntry } from '../../src/types';
+import { arbServerEntry, arbWsEntry, arbIdentifierName } from '../helpers/generators';
 
 describe('Bundle Generator', () => {
   it('Property 19: Bundle Generator Structural Validity for Non-Empty Registries', () => {
@@ -12,16 +12,16 @@ describe('Bundle Generator', () => {
 
     fc.assert(
       fc.property(
-        fc.array(arbActionEntry(), { minLength: 0, maxLength: 5 }),
+        fc.array(arbServerEntry(), { minLength: 0, maxLength: 5 }),
         fc.array(arbWsEntry(), { minLength: 0, maxLength: 5 }),
-        (actionEntries, wsEntries) => {
+        (serverEntries, wsEntries) => {
           // Ensure at least one entry exists (non-empty registry)
-          if (actionEntries.length === 0 && wsEntries.length === 0) return;
+          if (serverEntries.length === 0 && wsEntries.length === 0) return;
 
           // Deduplicate endpoints to avoid registry conflicts
           const usedEndpoints = new Set<string>();
-          const dedupedBackend: ActionEntry[] = [];
-          for (const entry of actionEntries) {
+          const dedupedBackend: ServerEntry[] = [];
+          for (const entry of serverEntries) {
             if (!usedEndpoints.has(entry.endpoint)) {
               usedEndpoints.add(entry.endpoint);
               dedupedBackend.push(entry);
@@ -37,7 +37,7 @@ describe('Bundle Generator', () => {
 
           if (dedupedBackend.length === 0 && dedupedWs.length === 0) return;
 
-          const registry = new Registry<ActionEntry>();
+          const registry = new Registry<ServerEntry>();
           for (const entry of dedupedBackend) {
             registry.set(entry.endpoint, entry);
             registry.registerFile(entry.file, [entry.endpoint]);
@@ -72,7 +72,7 @@ describe('Bundle Generator', () => {
           expect(output!).toContain("'/__server-build/*'");
           expect(output!).toContain('.post(');
 
-          // (3) When ws entries exist, a ws: configuration block
+          // (3) When ws entries exist, a websocket: configuration block
           if (dedupedWs.length > 0) {
             expect(output!).toContain('websocket:');
           }
@@ -124,10 +124,10 @@ describe('Bundle Generator', () => {
 
     fc.assert(
       fc.property(arbSharedLocalEntries, ({ sharedLocal, entries }) => {
-        const registry = new Registry<ActionEntry>();
+        const registry = new Registry<ServerEntry>();
 
         for (const { file, specifier, endpoint } of entries) {
-          const entry: ActionEntry = {
+          const entry: ServerEntry = {
             endpoint,
             file,
             fnJs: '(x) => x',
@@ -223,10 +223,10 @@ describe('Bundle Generator', () => {
 
     fc.assert(
       fc.property(arbSameFileEntries, ({ file, moduleDeclsJs, entries }) => {
-        const registry = new Registry<ActionEntry>();
+        const registry = new Registry<ServerEntry>();
 
         for (const { endpoint, originalName } of entries) {
-          const entry: ActionEntry = {
+          const entry: ServerEntry = {
             endpoint,
             file,
             fnJs: '(x) => x',

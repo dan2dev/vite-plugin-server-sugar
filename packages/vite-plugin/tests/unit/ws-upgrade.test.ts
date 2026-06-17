@@ -7,7 +7,7 @@ import { Registry } from '../../src/core/registry';
 import type { WsEntry } from '../../src/types';
 
 /**
- * Unit tests for the WebSocket upgrade handler (ws-upgrade.ts).
+ * Unit tests for the Ws upgrade handler (ws-upgrade.ts).
  * Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5, 6.6
  */
 
@@ -25,7 +25,7 @@ vi.mock('ws', () => {
         cb: (ws: unknown) => void,
       ) {
         mockHandleUpgrade(_req, _socket, _head, cb);
-        // Create a mock raw WebSocket (EventEmitter with send/close)
+        // Create a mock raw Ws (EventEmitter with send/close)
         const mockWs = Object.assign(new EventEmitter(), {
           send: vi.fn(),
           close: vi.fn(),
@@ -37,7 +37,7 @@ vi.mock('ws', () => {
 });
 
 // Import after mock declaration (vitest hoists vi.mock automatically)
-const { setupWebsocketUpgrade } = await import(
+const { setupWsUpgrade } = await import(
   '../../src/dev-server/ws-upgrade'
 );
 
@@ -67,7 +67,7 @@ function setupWithRegistry(wsRegistry: Registry<WsEntry>): {
     ssrLoadModule: vi.fn(),
   } as unknown as ViteDevServer;
 
-  setupWebsocketUpgrade(server, wsRegistry);
+  setupWsUpgrade(server, wsRegistry);
 
   const listeners = httpServer.listeners('upgrade');
   const triggerUpgrade = listeners[listeners.length - 1] as (
@@ -79,7 +79,7 @@ function setupWithRegistry(wsRegistry: Registry<WsEntry>): {
   return { server, triggerUpgrade };
 }
 
-describe('WebSocket Upgrade Handler', () => {
+describe('Ws Upgrade Handler', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockHandleUpgrade.mockClear();
@@ -97,7 +97,7 @@ describe('WebSocket Upgrade Handler', () => {
       expect(socket.destroy).not.toHaveBeenCalled();
     });
 
-    it('ignores Vite HMR WebSocket upgrades', () => {
+    it('ignores Vite HMR Ws upgrades', () => {
       const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
@@ -333,7 +333,7 @@ describe('WebSocket Upgrade Handler', () => {
     });
   });
 
-  describe('Requirement 6.6: Invalid JSON in WebSocket message passes raw string to onMessage', () => {
+  describe('Requirement 6.6: Invalid JSON in Ws message passes raw string to onMessage', () => {
     it('passes raw string when message is not valid JSON', async () => {
       const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);

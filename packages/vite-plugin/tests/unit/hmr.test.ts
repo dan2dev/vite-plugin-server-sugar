@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ViteDevServer } from 'vite';
 import type { InvalidationGraph } from '../../src/types';
 import {
-  invalidateActionModules,
+  invalidateServerModules,
   invalidateWsModules,
-  invalidateActionFileModules,
+  invalidateServerFileModules,
 } from '../../src/dev-server/hmr';
 import {
   RESOLVED_PREFIX,
@@ -64,11 +64,11 @@ function addModuleToGraph(
 
 describe('HMR Invalidation', () => {
   describe('empty invalidation list results in early return', () => {
-    it('invalidateActionModules performs no graph operations for empty endpoints', () => {
+    it('invalidateServerModules performs no graph operations for empty endpoints', () => {
       const server = createMockServer();
       addModuleToGraph(server.moduleGraph, RESOLVED_PREFIX + 'some-endpoint');
 
-      invalidateActionModules(server, []);
+      invalidateServerModules(server, []);
 
       expect(server.moduleGraph.getModuleById).not.toHaveBeenCalled();
       expect(server.moduleGraph.invalidateModule).not.toHaveBeenCalled();
@@ -84,14 +84,14 @@ describe('HMR Invalidation', () => {
       expect(server.moduleGraph.invalidateModule).not.toHaveBeenCalled();
     });
 
-    it('invalidateActionFileModules performs no graph operations for empty files', () => {
+    it('invalidateServerFileModules performs no graph operations for empty files', () => {
       const server = createMockServer();
       addModuleToGraph(
         server.moduleGraph,
         RESOLVED_FILE_PREFIX + encodeURIComponent('/src/test.ts'),
       );
 
-      invalidateActionFileModules(server, []);
+      invalidateServerFileModules(server, []);
 
       expect(server.moduleGraph.getModuleById).not.toHaveBeenCalled();
       expect(server.moduleGraph.invalidateModule).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe('HMR Invalidation', () => {
       const server = createMockServer();
 
       // An empty Set passed as iterable
-      invalidateActionModules(server, new Set<string>());
+      invalidateServerModules(server, new Set<string>());
 
       expect(server.moduleGraph.getModuleById).not.toHaveBeenCalled();
       expect(server.moduleGraph.invalidateModule).not.toHaveBeenCalled();
@@ -109,7 +109,7 @@ describe('HMR Invalidation', () => {
   });
 
   describe('file deletion invalidates all previously registered virtual modules', () => {
-    it('invalidateActionModules invalidates all endpoint virtual modules for a file', () => {
+    it('invalidateServerModules invalidates all endpoint virtual modules for a file', () => {
       const server = createMockServer();
       const endpoints = ['endpoint-a', 'endpoint-b', 'endpoint-c'];
 
@@ -119,7 +119,7 @@ describe('HMR Invalidation', () => {
       );
 
       // Simulate file deletion: invalidate all endpoints that were registered for the file
-      invalidateActionModules(server, endpoints);
+      invalidateServerModules(server, endpoints);
 
       expect(server.moduleGraph.getModuleById).toHaveBeenCalledTimes(3);
       expect(server.moduleGraph.invalidateModule).toHaveBeenCalledTimes(3);
@@ -158,7 +158,7 @@ describe('HMR Invalidation', () => {
       }
     });
 
-    it('invalidateActionFileModules invalidates file-level virtual modules for deleted files', () => {
+    it('invalidateServerFileModules invalidates file-level virtual modules for deleted files', () => {
       const server = createMockServer();
       const files = ['/src/todos.ts', '/src/auth.ts'];
 
@@ -169,7 +169,7 @@ describe('HMR Invalidation', () => {
         ),
       );
 
-      invalidateActionFileModules(server, files);
+      invalidateServerFileModules(server, files);
 
       expect(server.moduleGraph.invalidateModule).toHaveBeenCalledTimes(2);
       for (let i = 0; i < files.length; i++) {
@@ -189,7 +189,7 @@ describe('HMR Invalidation', () => {
       const server = createMockServer();
 
       // These endpoints have no modules registered in the graph
-      invalidateActionModules(server, ['nonexistent-a', 'nonexistent-b']);
+      invalidateServerModules(server, ['nonexistent-a', 'nonexistent-b']);
 
       expect(server.moduleGraph.getModuleById).toHaveBeenCalledTimes(2);
       expect(server.moduleGraph.invalidateModule).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ describe('HMR Invalidation', () => {
   });
 
   describe('both SSR and mixed module graphs are invalidated when both exist', () => {
-    it('invalidateActionModules invalidates in both SSR and mixed graphs', () => {
+    it('invalidateServerModules invalidates in both SSR and mixed graphs', () => {
       const ssrGraph = createMockGraph();
       const server = createMockServer({ ssrGraph });
       const endpoint = 'shared-endpoint';
@@ -205,7 +205,7 @@ describe('HMR Invalidation', () => {
       const mixedMod = addModuleToGraph(server.moduleGraph, RESOLVED_PREFIX + endpoint);
       const ssrMod = addModuleToGraph(ssrGraph, RESOLVED_PREFIX + endpoint);
 
-      invalidateActionModules(server, [endpoint]);
+      invalidateServerModules(server, [endpoint]);
 
       // Both graphs should have getModuleById called
       expect(server.moduleGraph.getModuleById).toHaveBeenCalledWith(
@@ -254,7 +254,7 @@ describe('HMR Invalidation', () => {
       );
     });
 
-    it('invalidateActionFileModules invalidates in both SSR and mixed graphs', () => {
+    it('invalidateServerFileModules invalidates in both SSR and mixed graphs', () => {
       const ssrGraph = createMockGraph();
       const server = createMockServer({ ssrGraph });
       const file = '/src/api.ts';
@@ -263,7 +263,7 @@ describe('HMR Invalidation', () => {
       const mixedMod = addModuleToGraph(server.moduleGraph, fileId);
       const ssrMod = addModuleToGraph(ssrGraph, fileId);
 
-      invalidateActionFileModules(server, [file]);
+      invalidateServerFileModules(server, [file]);
 
       expect(server.moduleGraph.invalidateModule).toHaveBeenCalledWith(
         mixedMod,
@@ -286,7 +286,7 @@ describe('HMR Invalidation', () => {
 
       addModuleToGraph(server.moduleGraph, RESOLVED_PREFIX + endpoint);
 
-      invalidateActionModules(server, [endpoint]);
+      invalidateServerModules(server, [endpoint]);
 
       // Should only be called once (one graph)
       expect(server.moduleGraph.getModuleById).toHaveBeenCalledTimes(1);
@@ -301,7 +301,7 @@ describe('HMR Invalidation', () => {
       // Only add to mixed graph, not SSR graph
       const mixedMod = addModuleToGraph(server.moduleGraph, RESOLVED_PREFIX + endpoint);
 
-      invalidateActionModules(server, [endpoint]);
+      invalidateServerModules(server, [endpoint]);
 
       // Mixed graph has the module - should invalidate
       expect(server.moduleGraph.invalidateModule).toHaveBeenCalledWith(
@@ -326,7 +326,7 @@ describe('HMR Invalidation', () => {
         addModuleToGraph(ssrGraph, RESOLVED_PREFIX + ep),
       );
 
-      invalidateActionModules(server, endpoints);
+      invalidateServerModules(server, endpoints);
 
       // 3 endpoints × 2 graphs = 6 getModuleById calls total
       expect(server.moduleGraph.getModuleById).toHaveBeenCalledTimes(3);

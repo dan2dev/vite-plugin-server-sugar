@@ -3,7 +3,7 @@ import * as fc from 'fast-check';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import { Registry } from '../../src/core/registry';
-import { handleGeneratedActionRequest } from '../../src/dev-server/middleware';
+import { handleGeneratedServerRequest } from '../../src/dev-server/middleware';
 import { arbEndpointName } from '../helpers/generators';
 import { API_PREFIX } from '../../src/constants';
 
@@ -142,7 +142,7 @@ describe('Middleware Property Tests', () => {
 
   it('Property 26: Middleware Wraps Non-Array JSON in Single-Element Array', () => {
     // Feature: vite-plugin-quality-testing, Property 26: Middleware Wraps Non-Array JSON in Single-Element Array
-    // For any valid JSON value that is not an array, actionArgsFromBody wraps it in [value],
+    // For any valid JSON value that is not an array, serverArgsFromBody wraps it in [value],
     // so the handler receives the value as its first (and only) argument.
     fc.assert(
       fc.asyncProperty(arbNonArrayJsonValue(), async (value) => {
@@ -157,7 +157,7 @@ describe('Middleware Property Tests', () => {
         const res = createMockRes();
         const server = createMockServer(handler);
 
-        await handleGeneratedActionRequest(server, req, res, 'test', registry);
+        await handleGeneratedServerRequest(server, req, res, 'test', registry);
 
         // The handler should have been called exactly once
         expect(receivedArgs.length).toBe(1);
@@ -208,7 +208,7 @@ describe('Middleware Property Tests', () => {
         const server = createMockServer(handler);
 
         // Dispatch using the decoded endpoint name (as the middleware would after decoding)
-        await handleGeneratedActionRequest(server, req, res, extractedEndpoint, localRegistry);
+        await handleGeneratedServerRequest(server, req, res, extractedEndpoint, localRegistry);
 
         // The handler should have been called
         expect(dispatchedEndpoints.length).toBe(1);

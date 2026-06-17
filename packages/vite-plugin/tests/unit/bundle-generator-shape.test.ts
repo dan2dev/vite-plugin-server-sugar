@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 /**
  * Unit tests for Bundle Generator structural shape.
@@ -36,7 +36,7 @@ describe('Bundle Generator Structural Shape', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  function makeActionEntry(endpoint: string, file: string): ActionEntry {
+  function makeServerEntry(endpoint: string, file: string): ServerEntry {
     return {
       endpoint,
       imports: [],
@@ -54,9 +54,9 @@ describe('Bundle Generator Structural Shape', () => {
     };
   }
 
-  function generateWithActionEntry(): string {
-    const registry = new Registry<ActionEntry>();
-    const entry = makeActionEntry('my-endpoint', join(tempDir, 'src', 'handlers.ts'));
+  function generateWithServerEntry(): string {
+    const registry = new Registry<ServerEntry>();
+    const entry = makeServerEntry('my-endpoint', join(tempDir, 'src', 'handlers.ts'));
     registry.set('my-endpoint', entry);
     registry.registerFile(entry.file, ['my-endpoint']);
 
@@ -73,7 +73,7 @@ describe('Bundle Generator Structural Shape', () => {
   }
 
   function generateWithServerEntryOnly(): string {
-    const registry = new Registry<ActionEntry>();
+    const registry = new Registry<ServerEntry>();
 
     const result = generateBundleContent(
       registry,
@@ -88,7 +88,7 @@ describe('Bundle Generator Structural Shape', () => {
   }
 
   function generateWithWsEntry(): string {
-    const registry = new Registry<ActionEntry>();
+    const registry = new Registry<ServerEntry>();
     const wsRegistry = new Registry<WsEntry>();
     const wsEntry = makeWsEntry('chat', join(tempDir, 'src', 'chat.ts'));
     wsRegistry.set('chat', wsEntry);
@@ -108,8 +108,8 @@ describe('Bundle Generator Structural Shape', () => {
   }
 
   describe('Requirement 14.1: Exactly one Bun.serve({...}) call', () => {
-    it('output contains exactly one Bun.serve( occurrence with action entries only', () => {
-      const output = generateWithActionEntry();
+    it('output contains exactly one Bun.serve( occurrence with server entries only', () => {
+      const output = generateWithServerEntry();
       const matches = output.match(/Bun\.serve\(/g);
       expect(matches).not.toBeNull();
       expect(matches!.length).toBe(1);
@@ -132,92 +132,92 @@ describe('Bundle Generator Structural Shape', () => {
 
   describe('Requirement 14.2: Static asset middleware with Cache-Control headers', () => {
     it('output contains Cache-Control header for asset files', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('Cache-Control');
     });
 
     it('output sets immutable cache for assets in /assets/ path', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('public, max-age=31536000, immutable');
     });
 
     it('output sets must-revalidate cache for non-asset files', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('public, max-age=0, must-revalidate');
     });
 
     it('output checks if pathname includes /assets/ for cache strategy', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('/assets/');
     });
   });
 
   describe('Requirement 14.3: SPA fallback route for unmatched GET requests', () => {
     it('output contains SPA fallback serving index.html', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('index.html');
     });
 
     it('output has a GET catch-all route for SPA fallback', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       // The SPA fallback uses app.get("*", ...)
       expect(output).toContain('app.get("*"');
     });
 
     it('output serves index.html with text/html content type', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('text/html; charset=utf-8');
     });
   });
 
   describe('Requirement 14.4: serverEntry import validates .fetch() export', () => {
     it('output validates that server entry exports a fetch function', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain("typeof app.fetch !== 'function'");
     });
 
     it('output throws descriptive error when fetch export is missing', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('must export a Hono app');
     });
 
     it('output imports server entry as namespace', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain("import * as __serverEntry from");
     });
 
     it('output extracts default or named app export from server entry', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('__serverEntry.default ?? __serverEntry.app');
     });
   });
 
   describe('Requirement 14.5: 405 handler for non-POST to /__server-build/*', () => {
     it('output contains a 405 Method not allowed handler', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('405');
       expect(output).toContain('Method not allowed');
     });
 
     it('output uses app.all to catch non-POST methods on the API prefix', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain("app.all('/__server-build/");
     });
 
     it('output includes Allow: POST header in the 405 response', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain("Allow: 'POST'");
     });
   });
 
   describe('Requirement 14.6: (req) => app.fetch(req) binding pattern', () => {
     it('output uses (req) => app.fetch(req) in Bun.serve without wss', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       expect(output).toContain('(req) => app.fetch(req)');
     });
 
     it('output does NOT use bare app.fetch reference (unsafe this context)', () => {
-      const output = generateWithActionEntry();
+      const output = generateWithServerEntry();
       // The unsafe pattern would be: fetch: app.fetch,
       expect(output).not.toContain('fetch: app.fetch,');
     });

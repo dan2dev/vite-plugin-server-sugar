@@ -43,11 +43,11 @@ function wsConnections(): Map<string, Set<ServerWs>> {
  * Hooks into the Vite dev server's underlying HTTP server to upgrade
  * connections for `ws()` endpoints in-process, using the `ws`
  * package (Bun's own server uses native `Bun.serve` upgrades instead — see
- * build/bundle-generator.ts). Running in-process means a file's `action()`
+ * build/bundle-generator.ts). Running in-process means a file's `server()`
  * and `ws()` handlers share the same module instance and therefore
  * the same module-level state in dev mode, matching production.
  */
-export function setupWebsocketUpgrade(
+export function setupWsUpgrade(
   server: ViteDevServer,
   wsRegistry: Registry<WsEntry>,
 ): void {
@@ -119,7 +119,7 @@ export function setupWebsocketUpgrade(
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             console.error(
-              `[server-build] Error in websocket handler '${endpoint}': ${msg}`,
+              `[server-build] Error in ws handler '${endpoint}': ${msg}`,
             );
             rawSocket.close(1011, "Internal error");
           }

@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { Registry } from "../core/registry";
-import type { ActionEntry, WsEntry } from "../types";
+import type { ServerEntry, WsEntry } from "../types";
 import { API_PREFIX, WS_API_PREFIX } from "../constants";
 import { toImportPath } from "../utils/path";
-import { actionConstName, wsConstName } from "../utils/crypto";
+import { serverConstName, wsConstName } from "../utils/crypto";
 import { runtimeImportSpecifier } from "../dev-server/virtual-modules";
 
 interface SpecifierBindings {
@@ -19,7 +19,7 @@ function importedNameToken(imported: string): string {
 }
 
 export function generateBundleContent(
-  registry: Registry<ActionEntry>,
+  registry: Registry<ServerEntry>,
   serverEntry: string | undefined,
   serverEntryPath: string | null,
   serverOutDir: string,
@@ -28,7 +28,7 @@ export function generateBundleContent(
   wsRegistry?: Registry<WsEntry>,
 ): string | null {
   const hasServerEntry = serverEntryPath ? existsSync(serverEntryPath) : false;
-  const hasWebsocket = !!wsRegistry && wsRegistry.size > 0;
+  const hasWs = !!wsRegistry && wsRegistry.size > 0;
 
   if (serverEntry && !hasServerEntry) {
     throw new Error(
@@ -36,14 +36,14 @@ export function generateBundleContent(
     );
   }
 
-  if (!hasServerEntry && registry.size === 0 && !hasWebsocket) return null;
+  if (!hasServerEntry && registry.size === 0 && !hasWs) return null;
 
   const serverImportPath = hasServerEntry
     ? toImportPath(serverOutDir, serverEntryPath!)
     : null;
   const clientRootRelativePath = toImportPath(serverOutDir, clientOutDir);
 
-  // Action handlers from many source files are inlined into this single
+  // Server handlers from many source files are inlined into this single
   // module. Two files may legitimately use the same local name for different
   // imports, which would otherwise collide as duplicate top-level bindings.
   // Every distinct import gets a unique top-level alias and each handler
@@ -74,7 +74,7 @@ export function generateBundleContent(
     return bindings;
   };
 
-  function registerImports(entry: { endpoint: string; file: string; imports: ActionEntry["imports"] }): void {
+  function registerImports(entry: { endpoint: string; file: string; imports: ServerEntry["imports"] }): void {
     const locals: string[] = [];
     const aliases: string[] = [];
 
@@ -114,14 +114,14 @@ export function generateBundleContent(
     for (const entry of wsRegistry.values()) registerImports(entry);
   }
 
-  const actionImports: string[] = [];
+  const serverImports: string[] = [];
   for (const [specifier, bindings] of bindingsBySpecifier) {
     const quoted = JSON.stringify(specifier);
     if (bindings.default) {
-      actionImports.push(`import ${bindings.default} from ${quoted};`);
+      serverImports.push(`import ${bindings.default} from ${quoted};`);
     }
     if (bindings.namespace) {
-      actionImports.push(`import * as ${bindings.namespace} from ${quoted};`);
+      serverImports.push(`import * as ${bindings.namespace} from ${quoted};`);
     }
     if (bindings.named.size > 0) {
       const items = [...bindings.named]
@@ -129,7 +129,7 @@ export function generateBundleContent(
           ([imported, alias]) => `${importedNameToken(imported)} as ${alias}`,
         )
         .join(", ");
-      actionImports.push(`import { ${items} } from ${quoted};`);
+      serverImports.push(`import { ${items} } from ${quoted};`);
     }
   }
 
@@ -140,7 +140,7 @@ export function generateBundleContent(
       : "import { Hono } from 'hono';",
     "import { dirname, isAbsolute, join, relative, resolve } from 'path';",
     "import { fileURLToPath } from 'url';",
-    ...actionImports,
+    ...serverImports,
     "",
   ];
 
@@ -159,10 +159,10 @@ export function generateBundleContent(
     );
   }
 
-  if (hasWebsocket) {
+  if (hasWs) {
     lines.push(
       "// Tracks open sockets per ws() endpoint so a sibling",
-      "// action()/ws() handler can broadcast via `<name>.send(data)`.",
+      "// server()/ws() handler can broadcast via `<name>.send(data)`.",
       "const __wsConnections = new Map();",
       "function __wrapWs(endpoint, handlers) {",
       "  return {",
@@ -180,25 +180,25 @@ export function generateBundleContent(
 
   // Group entries by source file so module-level declarations (e.g. `const
   // state = {}`) are shared across all handlers from the same file —
-  // including across action() and ws() handlers in the same file.
+  // including across server() and ws() handlers in the same file.
   const entriesByFile = new Map<
     string,
-    { backend: ActionEntry[]; ws: WsEntry[] }
+    { server: ServerEntry[]; ws: WsEntry[] }
   >();
   function fileBucket(file: string) {
     let bucket = entriesByFile.get(file);
     if (!bucket) {
-      bucket = { backend: [], ws: [] };
+      bucket = { server: [], ws: [] };
       entriesByFile.set(file, bucket);
     }
     return bucket;
   }
-  for (const entry of registry.values()) fileBucket(entry.file).backend.push(entry);
+  for (const entry of registry.values()) fileBucket(entry.file).server.push(entry);
   if (wsRegistry) {
     for (const entry of wsRegistry.values()) fileBucket(entry.file).ws.push(entry);
   }
 
-  for (const [, { backend: fileBackend, ws: fileWs }] of entriesByFile) {
+  for (const [, { server: fileBackend, ws: fileWs }] of entriesByFile) {
     const first = fileBackend[0] ?? fileWs[0];
     const moduleDeclsJs = first?.moduleDeclsJs ?? "";
     const hasSiblingCrossRefs = first?.hasSiblingCrossRefs ?? false;
@@ -221,7 +221,7 @@ export function generateBundleContent(
     if (!useIIFE) {
       // No module-level state and no sibling cross-refs: emit each handler individually.
       for (const entry of fileBackend) {
-        const constName = actionConstName(entry.endpoint);
+        const constName = serverConstName(entry.endpoint);
         lines.push(`const ${constName} = ${handlerExpr(entry, entry.fnJs)};`, "");
       }
       for (const entry of fileWs) {
@@ -235,7 +235,7 @@ export function generateBundleContent(
       // Wrap all handlers from this file in an IIFE so they share the same
       // module-level state and can reference each other by their original names.
       const constNames = [
-        ...fileBackend.map((e) => actionConstName(e.endpoint)),
+        ...fileBackend.map((e) => serverConstName(e.endpoint)),
         ...fileWs.map((e) => wsConstName(e.endpoint)),
       ];
       lines.push(`const { ${constNames.join(", ")} } = (() => {`);
@@ -248,7 +248,7 @@ export function generateBundleContent(
 
       // Declare each handler as a named local so siblings can call each other.
       for (const entry of fileBackend) {
-        const constName = actionConstName(entry.endpoint);
+        const constName = serverConstName(entry.endpoint);
         const localName = entry.originalName ?? constName;
         lines.push(`  const ${localName} = ${handlerExpr(entry, entry.fnJs)};`);
       }
@@ -263,7 +263,7 @@ export function generateBundleContent(
       lines.push("  return {");
 
       for (const entry of fileBackend) {
-        const constName = actionConstName(entry.endpoint);
+        const constName = serverConstName(entry.endpoint);
         const localName = entry.originalName ?? constName;
         lines.push(`    ${constName}: ${localName},`);
       }
@@ -277,15 +277,15 @@ export function generateBundleContent(
     }
   }
 
-  lines.push("const __actionHandlers = {");
+  lines.push("const __serverHandlers = {");
   for (const entry of registry.values()) {
     lines.push(
-      `  ${JSON.stringify(entry.endpoint)}: ${actionConstName(entry.endpoint)},`,
+      `  ${JSON.stringify(entry.endpoint)}: ${serverConstName(entry.endpoint)},`,
     );
   }
   lines.push("};", "");
 
-  if (hasWebsocket) {
+  if (hasWs) {
     lines.push("const __wsHandlers = {");
     for (const entry of wsRegistry!.values()) {
       lines.push(
@@ -304,7 +304,7 @@ export function generateBundleContent(
     "  } catch {",
     '    return c.json({ error: "Bad request" }, 400);',
     "  }",
-    "  const handler = __actionHandlers[endpoint];",
+    "  const handler = __serverHandlers[endpoint];",
     "",
     "  if (!handler) {",
     "    return c.json({ error: `Handler not found for endpoint: ${endpoint}` }, 404);",
@@ -336,7 +336,7 @@ export function generateBundleContent(
     "  }",
     "});",
     "",
-    "// Action endpoints only accept POST; reject other methods explicitly",
+    "// Server endpoints only accept POST; reject other methods explicitly",
     `app.all('${API_PREFIX}*', (c) => c.json({ error: 'Method not allowed' }, 405, { Allow: 'POST' }));`,
     "",
     "// Serve static assets from the client build directory",
@@ -410,7 +410,7 @@ export function generateBundleContent(
     "",
   );
 
-  if (hasWebsocket) {
+  if (hasWs) {
     lines.push(
       "Bun.serve({",
       "  port: PORT,",

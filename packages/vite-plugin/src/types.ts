@@ -5,7 +5,7 @@ export interface RuntimeImport {
   specifier: string;
 }
 
-export interface ActionEntry {
+export interface ServerEntry {
   endpoint: string;
   imports: RuntimeImport[];
   /** Transpiled JS arrow-function expression (types stripped). */
@@ -13,7 +13,7 @@ export interface ActionEntry {
   file: string;
   /**
    * Original source identifier when the handler is assigned via
-   * `const originalName = $action(...)`. Used by the bundle generator to
+   * `const originalName = $server(...)`. Used by the bundle generator to
    * declare named locals inside the per-file IIFE so sibling handlers can
    * call each other by their original names.
    */
@@ -26,7 +26,7 @@ export interface ActionEntry {
   hasSiblingCrossRefs?: boolean;
   /**
    * Transpiled JS of module-level (non-import) declarations from the source
-   * file that are not $action handlers. All entries from the same file share
+   * file that are not $server handlers. All entries from the same file share
    * the same value. When non-empty, the bundle generator wraps all handlers
    * from this file in a per-file IIFE so they close over the same state.
    */
@@ -45,17 +45,17 @@ export interface WsEntry {
   /**
    * Original source identifier when assigned via `const x = $ws(...)`.
    * Used by the bundle generator to declare named locals inside the per-file
-   * IIFE so sibling handlers ($action or $ws) can reference each other.
+   * IIFE so sibling handlers ($server or $ws) can reference each other.
    */
   originalName?: string;
   /**
    * True when at least one handler in this file references another sibling
-   * handler ($action or $ws) by its original name.
+   * handler ($server or $ws) by its original name.
    */
   hasSiblingCrossRefs?: boolean;
   /**
-   * Transpiled JS of module-level declarations shared with sibling $action()/
-   * $ws() handlers from the same file. See {@link ActionEntry.moduleDeclsJs}.
+   * Transpiled JS of module-level declarations shared with sibling $server()/
+   * $ws() handlers from the same file. See {@link ServerEntry.moduleDeclsJs}.
    */
   moduleDeclsJs?: string;
 }

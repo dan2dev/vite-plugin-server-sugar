@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generateBundleContent } from "../src/build/bundle-generator";
 import { Registry } from "../src/core/registry";
-import type { ActionEntry } from "../src/types";
+import type { ServerEntry } from "../src/types";
 
 // --- Test Helpers ---
 
@@ -33,7 +33,7 @@ afterAll(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function makeEntry(endpoint: string): ActionEntry {
+function makeEntry(endpoint: string): ServerEntry {
   return {
     endpoint,
     imports: [],
@@ -42,7 +42,7 @@ function makeEntry(endpoint: string): ActionEntry {
   };
 }
 
-function makeEntryWithImports(endpoint: string): ActionEntry {
+function makeEntryWithImports(endpoint: string): ServerEntry {
   return {
     endpoint,
     imports: [
@@ -165,9 +165,9 @@ describe("Preservation: API routing present", () => {
     expect(code).toContain("decodeURIComponent");
   });
 
-  test("POST handler routes to __actionHandlers", () => {
+  test("POST handler routes to __serverHandlers", () => {
     const code = generateWithEndpoints(["getTodos"]);
-    expect(code).toContain("const handler = __actionHandlers[endpoint]");
+    expect(code).toContain("const handler = __serverHandlers[endpoint]");
   });
 
   test("POST handler returns 404 for unregistered endpoints", () => {
@@ -229,17 +229,17 @@ describe("Preservation: Path traversal guard", () => {
 describe("Preservation: Backend handler registration", () => {
   /**
    * For N registered endpoints, generated code includes all N handler entries
-   * in `__actionHandlers`.
+   * in `__serverHandlers`.
    *
    * **Validates: Requirements 3.1, 3.2**
    */
-  test("single endpoint is registered in __actionHandlers", () => {
+  test("single endpoint is registered in __serverHandlers", () => {
     const code = generateWithEndpoints(["getTodos"]);
-    expect(code).toContain("const __actionHandlers = {");
+    expect(code).toContain("const __serverHandlers = {");
     expect(code).toContain('"getTodos"');
   });
 
-  test("multiple endpoints are all registered in __actionHandlers", () => {
+  test("multiple endpoints are all registered in __serverHandlers", () => {
     const endpoints = ["getTodos", "addTodo", "deleteTodo", "updateTodo"];
     const code = generateWithEndpoints(endpoints);
     for (const ep of endpoints) {
@@ -270,7 +270,7 @@ describe("Preservation: Backend handler registration", () => {
 
     // Each endpoint should have a const declaration for its handler
     for (const ep of endpoints) {
-      expect(code).toContain(`__action_${ep}_`);
+      expect(code).toContain(`__server_${ep}_`);
     }
   });
 

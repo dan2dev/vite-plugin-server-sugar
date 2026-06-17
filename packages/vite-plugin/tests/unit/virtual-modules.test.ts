@@ -3,7 +3,7 @@ import { Registry } from '../../src/core/registry';
 import {
   loadVirtualModule,
   runtimeImportSpecifier,
-  virtualActionFileId,
+  virtualServerFileId,
 } from '../../src/dev-server/virtual-modules';
 import {
   RESOLVED_CLIENT_HELPER_ID,
@@ -14,19 +14,19 @@ import {
   CLIENT_FETCH_EXPORT,
   CLIENT_WS_CONNECT_EXPORT,
 } from '../../src/constants';
-import { actionConstName, wsConstName } from '../../src/utils/crypto';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import { serverConstName, wsConstName } from '../../src/utils/crypto';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 /**
  * Unit tests for the Virtual Module Loader.
  * Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
  */
 
-function makeActionEntry(
+function makeServerEntry(
   endpoint: string,
   file: string,
-  opts: Partial<ActionEntry> = {},
-): ActionEntry {
+  opts: Partial<ServerEntry> = {},
+): ServerEntry {
   return {
     endpoint,
     file,
@@ -52,16 +52,16 @@ function makeWsEntry(
 
 describe('Virtual Module Loader', () => {
   describe('client fetch helper module', () => {
-    it('exports async __actionFetch function', () => {
-      const registry = new Registry<ActionEntry>();
+    it('exports async __serverFetch function', () => {
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_HELPER_ID, registry);
 
       expect(result).not.toBeUndefined();
       expect(result!.code).toContain(`export async function ${CLIENT_FETCH_EXPORT}(`);
     });
 
-    it('__actionFetch performs a POST with JSON body and error handling', () => {
-      const registry = new Registry<ActionEntry>();
+    it('__serverFetch performs a POST with JSON body and error handling', () => {
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_HELPER_ID, registry);
 
       expect(result!.code).toContain("method: 'POST'");
@@ -72,24 +72,24 @@ describe('Virtual Module Loader', () => {
     });
 
     it('returns map: null', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_HELPER_ID, registry);
 
       expect(result!.map).toBeNull();
     });
   });
 
-  describe('client WebSocket connect helper', () => {
+  describe('client Ws connect helper', () => {
     it('exports __wsConnect function', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_WS_HELPER_ID, registry);
 
       expect(result).not.toBeUndefined();
       expect(result!.code).toContain(`export function ${CLIENT_WS_CONNECT_EXPORT}(`);
     });
 
-    it('__wsConnect constructs a WebSocket URL and returns send/onMessage/onClose/close/readyState', () => {
-      const registry = new Registry<ActionEntry>();
+    it('__wsConnect constructs a Ws URL and returns send/onMessage/onClose/close/readyState', () => {
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_WS_HELPER_ID, registry);
 
       expect(result!.code).toContain('new WebSocket(__url)');
@@ -101,7 +101,7 @@ describe('Virtual Module Loader', () => {
     });
 
     it('returns map: null', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const result = loadVirtualModule(RESOLVED_CLIENT_WS_HELPER_ID, registry);
 
       expect(result!.map).toBeNull();
@@ -111,9 +111,9 @@ describe('Virtual Module Loader', () => {
   describe('per-file combined module', () => {
     it('imports and exports all handler constants', () => {
       const file = '/src/api/todos.ts';
-      const registry = new Registry<ActionEntry>();
-      const entry1 = makeActionEntry('get-todos', file);
-      const entry2 = makeActionEntry('add-todo', file);
+      const registry = new Registry<ServerEntry>();
+      const entry1 = makeServerEntry('get-todos', file);
+      const entry2 = makeServerEntry('add-todo', file);
 
       registry.set('get-todos', entry1);
       registry.set('add-todo', entry2);
@@ -124,8 +124,8 @@ describe('Virtual Module Loader', () => {
 
       expect(result).not.toBeUndefined();
 
-      const const1 = actionConstName('get-todos');
-      const const2 = actionConstName('add-todo');
+      const const1 = serverConstName('get-todos');
+      const const2 = serverConstName('add-todo');
 
       expect(result!.code).toContain(`const ${const1}`);
       expect(result!.code).toContain(`const ${const2}`);
@@ -134,8 +134,8 @@ describe('Virtual Module Loader', () => {
 
     it('includes runtime imports from entries', () => {
       const file = '/src/api/todos.ts';
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry('get-todos', file, {
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry('get-todos', file, {
         imports: [
           {
             specifier: 'some-lib',
@@ -155,15 +155,15 @@ describe('Virtual Module Loader', () => {
 
     it('deduplicates identical import lines', () => {
       const file = '/src/api/todos.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const sharedImport = {
         specifier: 'some-lib',
         named: [{ imported: 'helper', local: 'helper' }],
       };
-      const entry1 = makeActionEntry('get-todos', file, {
+      const entry1 = makeServerEntry('get-todos', file, {
         imports: [sharedImport],
       });
-      const entry2 = makeActionEntry('add-todo', file, {
+      const entry2 = makeServerEntry('add-todo', file, {
         imports: [sharedImport],
       });
 
@@ -179,22 +179,22 @@ describe('Virtual Module Loader', () => {
     });
 
     it('returns undefined when file has no registered entries', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const resolvedId = RESOLVED_FILE_PREFIX + encodeURIComponent('/src/empty.ts');
       const result = loadVirtualModule(resolvedId, registry);
 
       expect(result).toBeUndefined();
     });
 
-    it('includes both action and ws entries from the same file', () => {
+    it('includes both server and ws entries from the same file', () => {
       const file = '/src/api/chat.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
-      const actionEntry = makeActionEntry('send-message', file);
+      const serverEntry = makeServerEntry('send-message', file);
       const wsEntry = makeWsEntry('chat-ws', file);
 
-      registry.set('send-message', actionEntry);
+      registry.set('send-message', serverEntry);
       registry.registerFile(file, ['send-message']);
       wsRegistry.set('chat-ws', wsEntry);
       wsRegistry.registerFile(file, ['chat-ws']);
@@ -203,7 +203,7 @@ describe('Virtual Module Loader', () => {
       const result = loadVirtualModule(resolvedId, registry, wsRegistry);
 
       expect(result).not.toBeUndefined();
-      expect(result!.code).toContain(actionConstName('send-message'));
+      expect(result!.code).toContain(serverConstName('send-message'));
       expect(result!.code).toContain(wsConstName('chat-ws'));
     });
   });
@@ -211,8 +211,8 @@ describe('Virtual Module Loader', () => {
   describe('per-endpoint module', () => {
     it('re-exports the hashed constant as default', () => {
       const file = '/src/api/todos.ts';
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry('get-todos', file);
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry('get-todos', file);
 
       registry.set('get-todos', entry);
       registry.registerFile(file, ['get-todos']);
@@ -222,14 +222,14 @@ describe('Virtual Module Loader', () => {
 
       expect(result).not.toBeUndefined();
 
-      const constName = actionConstName('get-todos');
-      const fileVirtualId = virtualActionFileId(file);
+      const constName = serverConstName('get-todos');
+      const fileVirtualId = virtualServerFileId(file);
       expect(result!.code).toContain(`export { ${constName} as default }`);
       expect(result!.code).toContain(`from ${JSON.stringify(fileVirtualId)}`);
     });
 
     it('returns undefined for an unregistered endpoint', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const resolvedId = RESOLVED_PREFIX + 'nonexistent';
       const result = loadVirtualModule(resolvedId, registry);
 
@@ -238,7 +238,7 @@ describe('Virtual Module Loader', () => {
 
     it('re-exports ws endpoint correctly', () => {
       const file = '/src/api/chat.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const wsEntry = makeWsEntry('chat-ws', file);
 
@@ -251,13 +251,13 @@ describe('Virtual Module Loader', () => {
       expect(result).not.toBeUndefined();
 
       const constName = wsConstName('chat-ws');
-      const fileVirtualId = virtualActionFileId(file);
+      const fileVirtualId = virtualServerFileId(file);
       expect(result!.code).toContain(`export { ${constName} as default }`);
       expect(result!.code).toContain(`from ${JSON.stringify(fileVirtualId)}`);
     });
 
     it('returns undefined for unregistered ws endpoint', () => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
       const resolvedId = RESOLVED_WS_PREFIX + 'nonexistent';
@@ -270,10 +270,10 @@ describe('Virtual Module Loader', () => {
   describe('mixed handlers with shared state', () => {
     it('wraps handlers in IIFE when moduleDeclsJs is set', () => {
       const file = '/src/api/chat.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
-      const actionEntry = makeActionEntry('send-message', file, {
+      const serverEntry = makeServerEntry('send-message', file, {
         moduleDeclsJs: 'let counter = 0;',
         originalName: 'sendMessage',
       });
@@ -282,7 +282,7 @@ describe('Virtual Module Loader', () => {
         originalName: 'chatWs',
       });
 
-      registry.set('send-message', actionEntry);
+      registry.set('send-message', serverEntry);
       registry.registerFile(file, ['send-message']);
       wsRegistry.set('chat-ws', wsEntry);
       wsRegistry.registerFile(file, ['chat-ws']);
@@ -300,17 +300,17 @@ describe('Virtual Module Loader', () => {
 
     it('includes __wrapWs helper when ws entries exist', () => {
       const file = '/src/api/chat.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
-      const actionEntry = makeActionEntry('send-message', file, {
+      const serverEntry = makeServerEntry('send-message', file, {
         moduleDeclsJs: 'let state = {};',
       });
       const wsEntry = makeWsEntry('chat-ws', file, {
         moduleDeclsJs: 'let state = {};',
       });
 
-      registry.set('send-message', actionEntry);
+      registry.set('send-message', serverEntry);
       registry.registerFile(file, ['send-message']);
       wsRegistry.set('chat-ws', wsEntry);
       wsRegistry.registerFile(file, ['chat-ws']);
@@ -324,13 +324,13 @@ describe('Virtual Module Loader', () => {
 
     it('uses IIFE when hasSiblingCrossRefs is true even without moduleDeclsJs', () => {
       const file = '/src/api/helpers.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
 
-      const entry1 = makeActionEntry('foo', file, {
+      const entry1 = makeServerEntry('foo', file, {
         hasSiblingCrossRefs: true,
         originalName: 'foo',
       });
-      const entry2 = makeActionEntry('bar', file, {
+      const entry2 = makeServerEntry('bar', file, {
         hasSiblingCrossRefs: true,
         originalName: 'bar',
       });
@@ -348,10 +348,10 @@ describe('Virtual Module Loader', () => {
 
     it('IIFE return block maps original names to const names', () => {
       const file = '/src/api/chat.ts';
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
 
-      const actionEntry = makeActionEntry('send-msg', file, {
+      const serverEntry = makeServerEntry('send-msg', file, {
         moduleDeclsJs: 'let x = 1;',
         originalName: 'sendMsg',
       });
@@ -360,7 +360,7 @@ describe('Virtual Module Loader', () => {
         originalName: 'chatConn',
       });
 
-      registry.set('send-msg', actionEntry);
+      registry.set('send-msg', serverEntry);
       registry.registerFile(file, ['send-msg']);
       wsRegistry.set('chat-conn', wsEntry);
       wsRegistry.registerFile(file, ['chat-conn']);
@@ -368,7 +368,7 @@ describe('Virtual Module Loader', () => {
       const resolvedId = RESOLVED_FILE_PREFIX + encodeURIComponent(file);
       const result = loadVirtualModule(resolvedId, registry, wsRegistry);
 
-      const bConstName = actionConstName('send-msg');
+      const bConstName = serverConstName('send-msg');
       const wConstName = wsConstName('chat-conn');
 
       // Inside the IIFE, locals use originalName
@@ -435,8 +435,8 @@ describe('Virtual Module Loader', () => {
 
     it('combined module resolves relative imports in rendered code', () => {
       const file = '/project/src/api/todos.ts';
-      const registry = new Registry<ActionEntry>();
-      const entry = makeActionEntry('get-todos', file, {
+      const registry = new Registry<ServerEntry>();
+      const entry = makeServerEntry('get-todos', file, {
         imports: [
           {
             specifier: './db',

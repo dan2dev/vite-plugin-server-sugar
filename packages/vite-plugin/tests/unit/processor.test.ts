@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
-import type { ActionEntry, WsEntry } from '../../src/types';
+import type { ServerEntry, WsEntry } from '../../src/types';
 
 /**
  * Unit tests for the Processor edge cases.
@@ -13,7 +13,7 @@ const FILE = '/project/src/test.ts';
 
 function createOptions(overrides: Partial<Parameters<typeof processFile>[2]> = {}) {
   return {
-    registry: new Registry<ActionEntry>(),
+    registry: new Registry<ServerEntry>(),
     wsRegistry: new Registry<WsEntry>(),
     root: ROOT,
     ...overrides,
@@ -21,8 +21,8 @@ function createOptions(overrides: Partial<Parameters<typeof processFile>[2]> = {
 }
 
 describe('Processor Edge Cases', () => {
-  describe('null return for files with no $action(/$ws( text', () => {
-    it('returns null for a file with no action or ws text', () => {
+  describe('null return for files with no $server(/$ws( text', () => {
+    it('returns null for a file with no server or ws text', () => {
       const code = `
         const foo = 42;
         export function hello() { return "hi"; }
@@ -52,11 +52,11 @@ describe('Processor Edge Cases', () => {
     });
   });
 
-  describe('null return for action/ws as identifiers (not call expressions)', () => {
-    it('returns null when action is used as a variable name', () => {
+  describe('null return for server/ws as identifiers (not call expressions)', () => {
+    it('returns null when server is used as a variable name', () => {
       const code = `
-        const action = { url: "/api" };
-        console.log(action);
+        const server = { url: "/api" };
+        console.log(server);
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -66,7 +66,7 @@ describe('Processor Edge Cases', () => {
 
     it('returns null when ws is used as a variable name', () => {
       const code = `
-        const ws = new WebSocket("ws://localhost");
+        const ws = new Ws("ws://localhost");
         ws.send("hello");
       `;
       const options = createOptions();
@@ -75,13 +75,13 @@ describe('Processor Edge Cases', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when action is a property access', () => {
+    it('returns null when server is a property access', () => {
       const code = `
-        const config = { action: "http://localhost" };
-        fetch(config.action);
+        const config = { server: "http://localhost" };
+        fetch(config.server);
       `;
       const options = createOptions();
-      // This won't match the regex since there's no `$action(` pattern
+      // This won't match the regex since there's no `$server(` pattern
       const result = processFile(code, FILE, options);
 
       expect(result).toBeNull();
@@ -89,9 +89,9 @@ describe('Processor Edge Cases', () => {
   });
 
   describe('non-function argument leaves call untouched', () => {
-    it('returns null when $action() receives a string literal', () => {
+    it('returns null when $server() receives a string literal', () => {
       const code = `
-        const api = $action("/api/users");
+        const api = $server("/api/users");
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -100,9 +100,9 @@ describe('Processor Edge Cases', () => {
       expect(options.registry.size).toBe(0);
     });
 
-    it('returns null when $action() receives a number literal', () => {
+    it('returns null when $server() receives a number literal', () => {
       const code = `
-        const api = $action(42);
+        const api = $server(42);
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -111,9 +111,9 @@ describe('Processor Edge Cases', () => {
       expect(options.registry.size).toBe(0);
     });
 
-    it('returns null when $action() receives no arguments', () => {
+    it('returns null when $server() receives no arguments', () => {
       const code = `
-        const api = $action();
+        const api = $server();
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -148,11 +148,11 @@ describe('Processor Edge Cases', () => {
   });
 
   describe('duplicate labels produce unique endpoints via line:col disambiguation', () => {
-    it('produces unique endpoints when two action calls have the same label', () => {
+    it('produces unique endpoints when two server calls have the same label', () => {
       const code = `
-const api = $action((x: number) => x + 1);
+const api = $server((x: number) => x + 1);
 const api2 = api;
-const api3 = $action((y: number) => y + 2);
+const api3 = $server((y: number) => y + 2);
 `;
       // Both assigned to different variables - they get different labels
       const options = createOptions();
@@ -168,14 +168,14 @@ const api3 = $action((y: number) => y + 2);
     });
 
     it('appends line:col disambiguation for truly duplicate labels', () => {
-      // Two $action() calls in an array literal both get the same positional
+      // Two $server() calls in an array literal both get the same positional
       // label (e.g. "0", "1") — but nested in the same default export they
       // share the "default" prefix. Force same inferred label by putting both
       // at the same array index path in separate arrays:
       const code = [
         'export default [',
-        '  $action((x: number) => x),',
-        '  $action((y: number) => y),',
+        '  $server((x: number) => x),',
+        '  $server((y: number) => y),',
         '];',
       ].join('\n');
       const options = createOptions();
@@ -193,7 +193,7 @@ const api3 = $action((y: number) => y + 2);
   describe('warning emission for unresolved references when emitWarnings is enabled', () => {
     it('emits a console warning for unresolved references', () => {
       const code = `
-const handler = $action(() => {
+const handler = $server(() => {
   return unknownVariable;
 });
 `;
@@ -211,7 +211,7 @@ const handler = $action(() => {
 
     it('does not emit warnings when emitWarnings is disabled', () => {
       const code = `
-const handler = $action(() => {
+const handler = $server(() => {
   return unknownVariable;
 });
 `;
@@ -228,7 +228,7 @@ const handler = $action(() => {
   describe('destructuring parameters are correctly identified as bound variables', () => {
     it('does not warn for destructured parameter names', () => {
       const code = `
-const handler = $action(({ id, name }: { id: string; name: string }) => {
+const handler = $server(({ id, name }: { id: string; name: string }) => {
   return { id, name };
 });
 `;
@@ -244,7 +244,7 @@ const handler = $action(({ id, name }: { id: string; name: string }) => {
 
     it('correctly identifies nested destructured names', () => {
       const code = `
-const handler = $action(({ user: { firstName, lastName } }: any) => {
+const handler = $server(({ user: { firstName, lastName } }: any) => {
   return firstName + " " + lastName;
 });
 `;
@@ -262,7 +262,7 @@ const handler = $action(({ user: { firstName, lastName } }: any) => {
     it('unregisters endpoints when file no longer contains handlers', () => {
       const options = createOptions();
       const codeWithHandler = `
-const getTodos = $action(() => []);
+const getTodos = $server(() => []);
 `;
       // First process - registers endpoint
       const result1 = processFile(codeWithHandler, FILE, options);
@@ -297,11 +297,11 @@ const chat = $ws({ onMessage(ws, data) { ws.send(data); } });
   });
 
   describe('server-only imports are removed from client output', () => {
-    it('removes import used only inside $action() handler', () => {
+    it('removes import used only inside $server() handler', () => {
       const code = `
 import { readFile } from "node:fs/promises";
 
-const getFile = $action(async (path: string) => {
+const getFile = $server(async (path: string) => {
   return readFile(path, "utf-8");
 });
 `;
@@ -314,13 +314,13 @@ const getFile = $action(async (path: string) => {
       expect(result!.code).not.toContain('node:fs/promises');
     });
 
-    it('keeps import used outside $action() handler', () => {
+    it('keeps import used outside $server() handler', () => {
       const code = `
 import { join } from "node:path";
 
 const basePath = join("/", "data");
 
-const getFile = $action(async () => {
+const getFile = $server(async () => {
   return join("/server", "file.txt");
 });
 `;
@@ -338,11 +338,11 @@ const getFile = $action(async () => {
       const code = `
 const config = { baseUrl: "/api" };
 
-const getTodos = $action(() => {
+const getTodos = $server(() => {
   return config.baseUrl + "/todos";
 });
 
-const getUsers = $action(() => {
+const getUsers = $server(() => {
   return config.baseUrl + "/users";
 });
 `;
@@ -361,11 +361,11 @@ const getUsers = $action(() => {
       expect(entries[0].moduleDeclsJs).toBe(entries[1].moduleDeclsJs);
     });
 
-    it('action and ws entries from the same file share moduleDeclsJs', () => {
+    it('server and ws entries from the same file share moduleDeclsJs', () => {
       const code = `
 const sharedState = new Map<string, string>();
 
-const getData = $action(() => {
+const getData = $server(() => {
   return Array.from(sharedState.entries());
 });
 
@@ -382,11 +382,11 @@ const chat = $ws({
       expect(options.registry.size).toBe(1);
       expect(options.wsRegistry!.size).toBe(1);
 
-      const actionEntry = [...options.registry.values()][0];
+      const serverEntry = [...options.registry.values()][0];
       const wsEntry = [...options.wsRegistry!.values()][0];
-      expect(actionEntry.moduleDeclsJs).toBeDefined();
+      expect(serverEntry.moduleDeclsJs).toBeDefined();
       expect(wsEntry.moduleDeclsJs).toBeDefined();
-      expect(actionEntry.moduleDeclsJs).toBe(wsEntry.moduleDeclsJs);
+      expect(serverEntry.moduleDeclsJs).toBe(wsEntry.moduleDeclsJs);
     });
   });
 });

@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 
 import { Registry } from "../core/registry";
-import type { ActionEntry, RuntimeImport, WsEntry } from "../types";
+import type { ServerEntry, RuntimeImport, WsEntry } from "../types";
 import {
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
@@ -17,7 +17,7 @@ import {
   VIRTUAL_WS_PREFIX,
   WS_RUNTIME_GLOBAL_KEY,
 } from "../constants";
-import { actionConstName, wsConstName } from "../utils/crypto";
+import { serverConstName, wsConstName } from "../utils/crypto";
 import { isRelativeImport, normalizePath, toImportPath } from "../utils/path";
 
 export function runtimeImportSpecifier(
@@ -74,7 +74,7 @@ export function renderRuntimeImport(
   return `import { ${namedImports} } from ${specifier};`;
 }
 
-export function virtualActionFileId(file: string): string {
+export function virtualServerFileId(file: string): string {
   return VIRTUAL_FILE_PREFIX + encodeURIComponent(file);
 }
 
@@ -96,10 +96,10 @@ export function resolveVirtualId(id: string): string | undefined {
   }
 }
 
-function actionEntriesForFile(
-  registry: Registry<ActionEntry>,
+function serverEntriesForFile(
+  registry: Registry<ServerEntry>,
   file: string,
-): ActionEntry[] {
+): ServerEntry[] {
   return [...registry.values()].filter((entry) => entry.file === file);
 }
 
@@ -111,19 +111,19 @@ function wsEntriesForFile(
 }
 
 /**
- * Generates the combined per-file module for ALL handlers (action() and
+ * Generates the combined per-file module for ALL handlers (server() and
  * ws()) declared in one source file. Both kinds share a single
  * generated module — and therefore a single IIFE instance — so module-level
  * state declared in the file is one shared object, not duplicated per kind.
  */
 function combinedFileModuleCode(
-  actionEntries: ActionEntry[],
+  serverEntries: ServerEntry[],
   wsEntries: WsEntry[],
 ): string {
   const seenImports = new Set<string>();
   const importLines: string[] = [];
 
-  for (const entry of [...actionEntries, ...wsEntries]) {
+  for (const entry of [...serverEntries, ...wsEntries]) {
     for (const runtimeImport of entry.imports) {
       const line = renderRuntimeImport(runtimeImport, entry.file, null);
       if (!seenImports.has(line)) {
@@ -133,13 +133,13 @@ function combinedFileModuleCode(
     }
   }
 
-  const first = actionEntries[0] ?? wsEntries[0];
+  const first = serverEntries[0] ?? wsEntries[0];
   const moduleDeclsJs = first?.moduleDeclsJs ?? "";
   const hasSiblingCrossRefs = first?.hasSiblingCrossRefs ?? false;
   const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
 
   const allConstNames = [
-    ...actionEntries.map((e) => actionConstName(e.endpoint)),
+    ...serverEntries.map((e) => serverConstName(e.endpoint)),
     ...wsEntries.map((e) => wsConstName(e.endpoint)),
   ];
 
@@ -168,8 +168,8 @@ function combinedFileModuleCode(
   }
 
   if (!useIIFE) {
-    for (const entry of actionEntries) {
-      lines.push(`const ${actionConstName(entry.endpoint)} = ${entry.fnJs};`);
+    for (const entry of serverEntries) {
+      lines.push(`const ${serverConstName(entry.endpoint)} = ${entry.fnJs};`);
     }
     for (const entry of wsEntries) {
       lines.push(
@@ -185,8 +185,8 @@ function combinedFileModuleCode(
       }
     }
 
-    for (const entry of actionEntries) {
-      const constName = actionConstName(entry.endpoint);
+    for (const entry of serverEntries) {
+      const constName = serverConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(`  const ${localName} = ${entry.fnJs};`);
     }
@@ -199,8 +199,8 @@ function combinedFileModuleCode(
     }
 
     lines.push("  return {");
-    for (const entry of actionEntries) {
-      const constName = actionConstName(entry.endpoint);
+    for (const entry of serverEntries) {
+      const constName = serverConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(`    ${constName}: ${localName},`);
     }
@@ -218,7 +218,7 @@ function combinedFileModuleCode(
 
 export function loadVirtualModule(
   id: string,
-  registry: Registry<ActionEntry>,
+  registry: Registry<ServerEntry>,
   wsRegistry?: Registry<WsEntry>,
 ) {
   if (id === RESOLVED_CLIENT_HELPER_ID) {
@@ -281,12 +281,12 @@ export function loadVirtualModule(
 
   if (id.startsWith(RESOLVED_FILE_PREFIX)) {
     const file = decodeURIComponent(id.slice(RESOLVED_FILE_PREFIX.length));
-    const fileActionEntries = actionEntriesForFile(registry, file);
+    const fileServerEntries = serverEntriesForFile(registry, file);
     const fileWsEntries = wsRegistry ? wsEntriesForFile(wsRegistry, file) : [];
-    if (fileActionEntries.length === 0 && fileWsEntries.length === 0) return;
+    if (fileServerEntries.length === 0 && fileWsEntries.length === 0) return;
 
     return {
-      code: combinedFileModuleCode(fileActionEntries, fileWsEntries),
+      code: combinedFileModuleCode(fileServerEntries, fileWsEntries),
       map: null,
     };
   }
@@ -298,7 +298,7 @@ export function loadVirtualModule(
     if (!entry) return;
 
     return {
-      code: `export { ${wsConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualActionFileId(entry.file))};\n`,
+      code: `export { ${wsConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualServerFileId(entry.file))};\n`,
       map: null,
     };
   }
@@ -309,7 +309,7 @@ export function loadVirtualModule(
   if (!entry) return;
 
   return {
-    code: `export { ${actionConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualActionFileId(entry.file))};\n`,
+    code: `export { ${serverConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualServerFileId(entry.file))};\n`,
     map: null,
   };
 }

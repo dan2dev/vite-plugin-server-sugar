@@ -7,7 +7,7 @@ import { Registry } from "../src/core/registry";
 import { generateBundleContent } from "../src/build/bundle-generator";
 import { loadVirtualModule } from "../src/dev-server/virtual-modules";
 import { RESOLVED_FILE_PREFIX, WS_RUNTIME_GLOBAL_KEY } from "../src/constants";
-import type { ActionEntry, WsEntry } from "../src/types";
+import type { ServerEntry, WsEntry } from "../src/types";
 
 /** Extracts the `const __wsConnections ... function __wrapWs(...) {...}` snippet from generated code. */
 function extractWrapWsSnippet(code: string): string {
@@ -37,7 +37,7 @@ describe("processFile: $ws()", () => {
         "});",
       ].join("\n");
 
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const result = processFile(code, file, { registry, wsRegistry, root });
 
@@ -54,28 +54,28 @@ describe("processFile: $ws()", () => {
     });
   });
 
-  test("shares module-level state between $action() and $ws() in the same file", () => {
+  test("shares module-level state between $server() and $ws() in the same file", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
       const code = [
         "const messages: string[] = [];",
         "",
-        "export const getHistory = $action(() => messages);",
+        "export const getHistory = $server(() => messages);",
         "",
         "export const chat = $ws({",
         "  onMessage(ws, data) { messages.push(data); },",
         "});",
       ].join("\n");
 
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       processFile(code, file, { registry, wsRegistry, root });
 
-      const actionEntry = [...registry.values()][0]!;
+      const serverEntry = [...registry.values()][0]!;
       const wsEntry = [...wsRegistry.values()][0]!;
 
-      expect(actionEntry.moduleDeclsJs).toContain("messages");
-      expect(wsEntry.moduleDeclsJs).toBe(actionEntry.moduleDeclsJs);
+      expect(serverEntry.moduleDeclsJs).toContain("messages");
+      expect(wsEntry.moduleDeclsJs).toBe(serverEntry.moduleDeclsJs);
     });
   });
 
@@ -84,7 +84,7 @@ describe("processFile: $ws()", () => {
       const file = join(root, "bad.ts");
       const code = "export const x = $ws({ foo() {} });";
 
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const result = processFile(code, file, { registry, wsRegistry, root });
 
@@ -98,7 +98,7 @@ describe("generateBundleContent: $ws()", () => {
   test("wires Bun.serve with a ws upgrade handler when ws entries exist", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
@@ -126,9 +126,9 @@ describe("generateBundleContent: $ws()", () => {
     });
   });
 
-  test("leaves the action-only Bun.serve call untouched when there are no ws entries", () => {
+  test("leaves the server-only Bun.serve call untouched when there are no ws entries", () => {
     withTempRoot((root) => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       registry.set("todos/get", {
         endpoint: "todos/get",
         imports: [],
@@ -151,10 +151,10 @@ describe("generateBundleContent: $ws()", () => {
     });
   });
 
-  test("combines $action() and $ws() handlers from the same file into one shared IIFE", () => {
+  test("combines $server() and $ws() handlers from the same file into one shared IIFE", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const moduleDeclsJs = "const messages = [];";
 
@@ -197,10 +197,10 @@ describe("generateBundleContent: $ws()", () => {
     });
   });
 
-  test("a sibling $action() handler can call <name>.send() to broadcast over the ws", () => {
+  test("a sibling $server() handler can call <name>.send() to broadcast over the ws", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       const moduleDeclsJs = "const history = [];";
 
@@ -246,7 +246,7 @@ describe("generateBundleContent: $ws()", () => {
 
   test("__wrapWs() in the generated bundle actually broadcasts send() to every registered connection", () => {
     withTempRoot((root) => {
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
@@ -291,7 +291,7 @@ describe("loadVirtualModule (dev): $ws() broadcast", () => {
   test("wraps ws handlers with a globalThis-backed broadcasting send()", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
@@ -317,7 +317,7 @@ describe("loadVirtualModule (dev): $ws() broadcast", () => {
   test("the generated __wrapWs() shares its connection registry with dev-server/ws-upgrade.ts via globalThis", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<ActionEntry>();
+      const registry = new Registry<ServerEntry>();
       const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",

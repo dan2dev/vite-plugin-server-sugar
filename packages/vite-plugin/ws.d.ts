@@ -3,7 +3,7 @@
  *
  * - On the server the handlers run for the lifetime of each connection.
  * - In the browser the call is replaced with `{ connect(...args) }`, which
- *   opens a `WebSocket` to the generated endpoint and returns a small
+ *   opens a `Ws` to the generated endpoint and returns a small
  *   wrapper for sending/receiving JSON-serializable messages.
  *
  * `args` passed to `connect(...)` are forwarded to the server and exposed as
@@ -12,11 +12,11 @@
  *
  * The value returned by `$ws()` has the same type signature wherever
  * it's referenced. On the client, call `.connect()` to open a connection. On
- * the server, call `.send()` from any sibling `$action()`/`$ws()`
+ * the server, call `.send()` from any sibling `$server()`/`$ws()`
  * handler in the same file to broadcast JSON-serializable data to every
  * currently open connection for this endpoint.
  *
- * Just like `$action()` infers `Args`/`R` from the function you pass it,
+ * Just like `$server()` infers `Args`/`R` from the function you pass it,
  * `$ws()` infers its message types from the handlers you pass it — no
  * explicit type arguments needed for the common case:
  *
@@ -36,8 +36,8 @@
  *     onClose(ws: ServerWs<ChatBroadcast>) {},
  *   });
  *
- *   // server: broadcast to every connected client from a sibling $action() handler
- *   export const announce = $action(async (text: string) => {
+ *   // server: broadcast to every connected client from a sibling $server() handler
+ *   export const announce = $server(async (text: string) => {
  *     chat.send({ text, from: "server" });
  *   });
  *
@@ -99,7 +99,7 @@ declare function $ws<
   connect(...args: TConnectArgs): WsConnection<TClientToServer, TServerToClient>;
   /**
    * Server: serializes `data` to JSON and broadcasts it to every currently
-   * open connection for this endpoint. Call from a sibling `$action()` or
+   * open connection for this endpoint. Call from a sibling `$server()` or
    * `$ws()` handler in the same file.
    */
   send(data: TServerToClient): void;

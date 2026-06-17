@@ -13,9 +13,9 @@ export function toKebabCase(str: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export function actionConstName(endpoint: string): string {
+export function serverConstName(endpoint: string): string {
   const safe = endpoint.replace(/[^A-Za-z0-9_$]/g, '_');
-  return `__action_${safe}_${hash(endpoint)}`;
+  return `__server_${safe}_${hash(endpoint)}`;
 }
 
 export function wsConstName(endpoint: string): string {

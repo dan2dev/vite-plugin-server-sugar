@@ -232,35 +232,35 @@ describe('collectBoundNames', () => {
 
 describe('inferBackendLabel', () => {
   it('uses variable name for const assignment', () => {
-    const sf = parse('const getTodos = $action(() => []);');
-    const call = findCallExpression(sf, '$action')!;
+    const sf = parse('const getTodos = $server(() => []);');
+    const call = findCallExpression(sf, '$server')!;
     expect(call).toBeDefined();
     const label = inferBackendLabel(call, sf);
     expect(label).toBe('getTodos');
   });
 
   it('uses property path for nested property assignment', () => {
-    const sf = parse('const api = { todos: { getAll: $action(() => []) } };');
-    const call = findCallExpression(sf, '$action')!;
+    const sf = parse('const api = { todos: { getAll: $server(() => []) } };');
+    const call = findCallExpression(sf, '$server')!;
     expect(call).toBeDefined();
     const label = inferBackendLabel(call, sf);
     expect(label).toBe('api.todos.getAll');
   });
 
   it('falls back to line:col when no naming context available', () => {
-    const sf = parse('$action(() => []);');
-    const call = findCallExpression(sf, '$action')!;
+    const sf = parse('$server(() => []);');
+    const call = findCallExpression(sf, '$server')!;
     expect(call).toBeDefined();
     const label = inferBackendLabel(call, sf);
-    expect(label).toMatch(/^\$action@\d+:\d+$/);
+    expect(label).toMatch(/^\$server@\d+:\d+$/);
   });
 
   it('handles destructured binding assignments', () => {
     // When assigned to a destructured binding pattern, the label includes
     // 'binding' (from bindingNameText on a non-identifier BindingName)
     // concatenated with the property assignment path
-    const sf = parse('const { handler } = { handler: $action(() => []) };');
-    const call = findCallExpression(sf, '$action')!;
+    const sf = parse('const { handler } = { handler: $server(() => []) };');
+    const call = findCallExpression(sf, '$server')!;
     expect(call).toBeDefined();
     const label = inferBackendLabel(call, sf);
     // The walk finds PropertyAssignment 'handler' then VariableDeclaration
@@ -277,8 +277,8 @@ describe('inferBackendLabel', () => {
   });
 
   it('handles export default assignment', () => {
-    const sf = parse('export default $action(() => []);');
-    const call = findCallExpression(sf, '$action')!;
+    const sf = parse('export default $server(() => []);');
+    const call = findCallExpression(sf, '$server')!;
     expect(call).toBeDefined();
     const label = inferBackendLabel(call, sf);
     expect(label).toBe('default');

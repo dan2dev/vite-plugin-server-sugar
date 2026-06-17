@@ -121,7 +121,7 @@ export function collectValueReferences(node: ts.Node): Set<string> {
  * class declarations, and `catch` bindings. Property names inside destructuring
  * patterns are intentionally excluded — only the locals that get introduced.
  *
- * Used (alongside imports and known globals) to find identifiers a `$action()`
+ * Used (alongside imports and known globals) to find identifiers a `$server()`
  * body references but never receives, which would be undefined server-side.
  */
 export function collectBoundNames(node: ts.Node): Set<string> {
@@ -195,7 +195,7 @@ export function functionNameText(node: ts.Node): string | null {
 export function inferBackendLabel(
   call: ts.CallExpression,
   sf: ts.SourceFile,
-  fallbackPrefix = '$action',
+  fallbackPrefix = '$server',
 ): string {
   const segments: string[] = [];
   let current: ts.Node = call;

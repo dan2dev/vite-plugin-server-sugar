@@ -37,7 +37,7 @@ describe('ws type inference', () => {
     // send() on the client connection accepts that same type
 
     interface IncomingPayload {
-      action: string;
+      server: string;
       value: number;
     }
 
@@ -55,7 +55,7 @@ describe('ws type inference', () => {
     const connection = endpoint.connect();
 
     // Client send() should accept IncomingPayload (TClientToServer - the `data` type from onMessage)
-    expectTypeOf(connection.send).toBeCallableWith({ action: 'test', value: 42 });
+    expectTypeOf(connection.send).toBeCallableWith({ server: 'test', value: 42 });
     expectTypeOf(connection.send).parameter(0).toEqualTypeOf<IncomingPayload>();
   });
 
