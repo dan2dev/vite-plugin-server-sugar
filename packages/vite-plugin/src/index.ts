@@ -89,7 +89,7 @@ export function serverBuildPlugin(
         scanDir(full);
       } else if (
         entry.isFile() &&
-        /\.(tsx?)$/.test(entry.name) &&
+        /\.([jt]sx?)$/.test(entry.name) &&
         !entry.name.endsWith(".d.ts")
       ) {
         const code = readFileSync(full, "utf-8");
@@ -297,7 +297,7 @@ export function serverBuildPlugin(
       }
 
       server.watcher.on("change", (file) => {
-        if (/\.(tsx?)$/.test(file) && !file.endsWith(".d.ts")) {
+        if (/\.([jt]sx?)$/.test(file) && !file.endsWith(".d.ts")) {
           const previousEndpoints = registry.getEndpointsForFile(file);
           const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
           try {

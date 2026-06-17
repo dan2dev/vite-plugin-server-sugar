@@ -174,6 +174,7 @@ export function processFile(
 
   const sf = ts.createSourceFile(id, code, ts.ScriptTarget.Latest, true);
   const replacements: Array<{ start: number; end: number; text: string }> = [];
+  const helperImports: string[] = [];
   const entries: BackendEntry[] = [];
   const wsEntries: WebSocketEntry[] = [];
   const usedEndpoints = new Set<string>();
@@ -412,15 +413,17 @@ export function processFile(
     for (const statement of sf.statements) {
       if (!ts.isImportDeclaration(statement)) continue;
       const clause = statement.importClause;
-      if (!clause) continue;
+      if (!clause || clause.isTypeOnly) continue;
+
       if (clause.name) names.add(clause.name.text);
       const namedBindings = clause.namedBindings;
       if (!namedBindings) continue;
       if (ts.isNamespaceImport(namedBindings)) {
         names.add(namedBindings.name.text);
       } else {
-        for (const element of namedBindings.elements)
-          names.add(element.name.text);
+        for (const element of namedBindings.elements) {
+          if (!element.isTypeOnly) names.add(element.name.text);
+        }
       }
     }
     return names;
@@ -462,7 +465,7 @@ export function processFile(
       if (ts.isIdentifier(n)) {
         names.add(n.text);
       } else {
-        for (const el of n.elements) {
+        for (const el of (n as ts.BindingPattern).elements) {
           if (ts.isBindingElement(el)) addName(el.name);
         }
       }
@@ -471,12 +474,16 @@ export function processFile(
     if (ts.isVariableStatement(statement)) {
       for (const decl of statement.declarationList.declarations)
         addName(decl.name);
-    } else if (ts.isFunctionDeclaration(statement) && statement.name) {
-      names.add(statement.name.text);
-    } else if (ts.isClassDeclaration(statement) && statement.name) {
-      names.add(statement.name.text);
-    } else if (ts.isEnumDeclaration(statement)) {
-      names.add(statement.name.text);
+    } else if (
+      (ts.isFunctionDeclaration(statement) ||
+        ts.isClassDeclaration(statement) ||
+        ts.isInterfaceDeclaration(statement) ||
+        ts.isTypeAliasDeclaration(statement) ||
+        ts.isEnumDeclaration(statement) ||
+        ts.isModuleDeclaration(statement)) &&
+      statement.name
+    ) {
+      addName(statement.name);
     }
 
     return names;
@@ -494,96 +501,6 @@ export function processFile(
 
   // Always compute import names — needed to filter allHandlerFreeRefs.
   const fileImportNames = collectFileImportNames();
-
-  /**
-   * Collect transpiled JS for module-level declarations that are REFERENCED by
-   * at least one backend/websocket handler in this file. Only top-level
-   * bindings are checked (so a React component's local variables don't
-   * accidentally match). Transitively pulls in declarations that are
-   * referenced by included ones.
-   */
-  function collectModuleDeclsJs(): string {
-    // Build a list of candidate declarations (non-import, non-handler, non-type).
-    type DeclInfo = {
-      statement: ts.Statement;
-      bindings: Set<string>; // names this statement introduces at top level
-      refs: Set<string>; // non-global, non-import names this statement uses
-    };
-
-    const candidates: DeclInfo[] = [];
-
-    for (const statement of sf.statements) {
-      if (ts.isImportDeclaration(statement)) continue;
-      if (ts.isExportDeclaration(statement)) continue;
-      if (ts.isInterfaceDeclaration(statement)) continue;
-      if (ts.isTypeAliasDeclaration(statement)) continue;
-      if (ts.isModuleDeclaration(statement)) continue;
-
-      const modifiers = ts.canHaveModifiers(statement)
-        ? ts.getModifiers(statement)
-        : undefined;
-      const hasDeclare = modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.DeclareKeyword,
-      );
-      if (hasDeclare) continue;
-
-      if (statementHasHandlerCall(statement)) continue;
-
-      const bindings = statementTopLevelBindings(statement);
-      if (bindings.size === 0) continue; // expression-only statements
-
-      // Collect names referenced by this statement that aren't globals or imports.
-      const refs = new Set<string>();
-      for (const name of collectValueReferences(statement)) {
-        if (
-          !KNOWN_GLOBALS.has(name) &&
-          !fileImportNames.has(name) &&
-          !bindings.has(name)
-        ) {
-          refs.add(name);
-        }
-      }
-
-      candidates.push({ statement, bindings, refs });
-    }
-
-    // Transitively expand: start with what handlers directly need, then
-    // include declarations that satisfy those names and add their own refs.
-    const needed = new Set(allHandlerFreeRefs);
-    let changed = true;
-    const included = new Set<DeclInfo>();
-
-    while (changed) {
-      changed = false;
-      for (const decl of candidates) {
-        if (included.has(decl)) continue;
-        if ([...decl.bindings].some((n) => needed.has(n))) {
-          included.add(decl);
-          changed = true;
-          for (const ref of decl.refs) {
-            if (!needed.has(ref)) {
-              needed.add(ref);
-              changed = true;
-            }
-          }
-        }
-      }
-    }
-
-    // Emit included declarations in document order.
-    const parts: string[] = [];
-    for (const decl of candidates) {
-      if (!included.has(decl)) continue;
-      const stmtSource = code
-        .slice(decl.statement.getFullStart(), decl.statement.getEnd())
-        .trim();
-      if (!stmtSource) continue;
-      const js = transpileStatements(stmtSource);
-      if (js) parts.push(js);
-    }
-
-    return parts.join("\n");
-  }
 
   function warnOnUncapturedReferences(
     fn: ts.Node,
@@ -630,15 +547,103 @@ export function processFile(
     return null;
   }
 
-  // Remove sibling handler names from allHandlerFreeRefs — they will be
-  // declared as named locals in the per-file IIFE so they don't need
-  // module-level capture. Track whether any cross-reference was found so
-  // the bundle generator can force IIFE mode even without shared state.
+  // Sibling handler names are handled separately in the per-file IIFE.
   const siblingHandlerNames = new Set(
     [...entries, ...wsEntries]
       .filter((e) => e.originalName)
       .map((e) => e.originalName!),
   );
+
+  /**
+   * Names of module-level declarations that are transitively needed by at
+   * least one backend/websocket handler in this file.
+   */
+  const namesNeededByServer = new Set(allHandlerFreeRefs);
+  const namesDefinedInModuleAndNeededByServer = new Set<string>();
+
+  // Sibling handlers are declared as locals in the IIFE, so they don't need
+  // module-level capture from the perspective of the server-side code generator.
+  for (const name of siblingHandlerNames) {
+    namesNeededByServer.delete(name);
+  }
+
+  // Transitively expand namesNeededByServer: find declarations that satisfy
+  // names we need, and add their own references to the set.
+  let serverChanged = true;
+  while (serverChanged) {
+    serverChanged = false;
+    for (const statement of sf.statements) {
+      if (
+        ts.isImportDeclaration(statement) ||
+        ts.isExportDeclaration(statement)
+      )
+        continue;
+      if (statementHasHandlerCall(statement)) continue;
+
+      const bindings = statementTopLevelBindings(statement);
+      if (bindings.size === 0) continue;
+
+      if ([...bindings].some((b) => namesNeededByServer.has(b))) {
+        for (const b of bindings) {
+          if (!namesDefinedInModuleAndNeededByServer.has(b)) {
+            namesDefinedInModuleAndNeededByServer.add(b);
+            serverChanged = true;
+          }
+        }
+        for (const ref of collectValueReferences(statement)) {
+          if (
+            !namesNeededByServer.has(ref) &&
+            !fileImportNames.has(ref) &&
+            !KNOWN_GLOBALS.has(ref)
+          ) {
+            namesNeededByServer.add(ref);
+            serverChanged = true;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Collect transpiled JS for module-level declarations that are REFERENCED by
+   * at least one backend/websocket handler in this file.
+   */
+  function collectModuleDeclsJs(): string {
+    const parts: string[] = [];
+
+    for (const statement of sf.statements) {
+      if (ts.isImportDeclaration(statement)) continue;
+      if (ts.isExportDeclaration(statement)) continue;
+      if (ts.isInterfaceDeclaration(statement)) continue;
+      if (ts.isTypeAliasDeclaration(statement)) continue;
+      if (ts.isModuleDeclaration(statement)) continue;
+
+      const modifiers = ts.canHaveModifiers(statement)
+        ? ts.getModifiers(statement)
+        : undefined;
+      if (modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword))
+        continue;
+
+      if (statementHasHandlerCall(statement)) continue;
+
+      const bindings = statementTopLevelBindings(statement);
+      if (bindings.size === 0) continue;
+
+      if ([...bindings].some((b) => namesDefinedInModuleAndNeededByServer.has(b))) {
+        const stmtSource = code
+          .slice(statement.getFullStart(), statement.getEnd())
+          .trim();
+        if (!stmtSource) continue;
+        const js = transpileStatements(stmtSource);
+        if (js) parts.push(js);
+      }
+    }
+
+    return parts.join("\n");
+  }
+
+  // Track whether any cross-reference was found so the bundle generator can
+  // force IIFE mode even without shared state.
   let hasSiblingCrossRefs = false;
   for (const name of siblingHandlerNames) {
     if (allHandlerFreeRefs.delete(name)) {
@@ -646,31 +651,34 @@ export function processFile(
     }
   }
 
+  function getImportedNames(statement: ts.ImportDeclaration): Set<string> {
+    const names = new Set<string>();
+    const clause = statement.importClause;
+    if (!clause || clause.isTypeOnly) return names;
+
+    if (clause.name) names.add(clause.name.text);
+
+    const namedBindings = clause.namedBindings;
+    if (namedBindings) {
+      if (ts.isNamespaceImport(namedBindings)) {
+        names.add(namedBindings.name.text);
+      } else {
+        for (const element of namedBindings.elements) {
+          if (!element.isTypeOnly) names.add(element.name.text);
+        }
+      }
+    }
+
+    return names;
+  }
+
   const handlerCallRanges = replacements.map(({ start, end }) => ({
     start,
     end,
   }));
 
-  function clientHelperInsertPosition(): number {
-    let position = 0;
-    for (const statement of sf.statements) {
-      if (!ts.isImportDeclaration(statement)) break;
-      position = statement.getEnd();
-    }
-    return position;
-  }
-
-  const helperInsertPosition = clientHelperInsertPosition();
-  let insertedHelperImport = false;
   function pushHelperImport(text: string): void {
-    const needsLeadingNewline =
-      helperInsertPosition !== 0 && !insertedHelperImport;
-    replacements.push({
-      start: helperInsertPosition,
-      end: helperInsertPosition,
-      text: `${needsLeadingNewline ? "\n" : ""}${text}\n`,
-    });
-    insertedHelperImport = true;
+    helperImports.push(text);
   }
 
   if (entries.length > 0) {
@@ -700,41 +708,104 @@ export function processFile(
     return ranges.some(({ start, end }) => position >= start && position < end);
   }
 
-  const outsideNames = new Set<string>();
-  function visitOutside(node: ts.Node): void {
-    if (ts.isImportDeclaration(node)) return;
-    if (isInsideRange(node.getStart(sf), handlerCallRanges)) return;
-    if (ts.isIdentifier(node) && isReferenceIdentifier(node)) {
-      outsideNames.add(node.text);
-    }
-    ts.forEachChild(node, visitOutside);
-  }
-  ts.forEachChild(sf, visitOutside);
+  type StatementInfo = {
+    statement: ts.Statement;
+    bindings: Set<string>;
+    refs: Set<string>;
+    isImport: boolean;
+    isCandidate: boolean;
+    isRoot: boolean;
+  };
 
+  const statementInfos: StatementInfo[] = [];
   for (const statement of sf.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    const importClause = statement.importClause;
-    if (!importClause || importClause.isTypeOnly) continue;
+    const isImport = ts.isImportDeclaration(statement);
+    const isExportDecl =
+      ts.isExportDeclaration(statement) || ts.isExportAssignment(statement);
+    const modifiers = ts.canHaveModifiers(statement)
+      ? ts.getModifiers(statement)
+      : undefined;
+    const isExported = modifiers?.some(
+      (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    const hasHandler = statementHasHandlerCall(statement);
+    const isType =
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement);
+    const isDeclare = modifiers?.some(
+      (m) => m.kind === ts.SyntaxKind.DeclareKeyword,
+    );
 
-    const names: string[] = [];
-    if (importClause.name) names.push(importClause.name.text);
-    const namedBindings = importClause.namedBindings;
-    if (namedBindings) {
-      if (ts.isNamespaceImport(namedBindings)) {
-        names.push(namedBindings.name.text);
-      } else {
-        for (const element of namedBindings.elements) {
-          if (!element.isTypeOnly) names.push(element.name.text);
+    const bindings = isImport
+      ? getImportedNames(statement)
+      : statementTopLevelBindings(statement);
+    const refs = new Set<string>();
+
+    const collectRefs = (node: ts.Node) => {
+      if (isInsideRange(node.getStart(sf), handlerCallRanges)) return;
+      if (ts.isIdentifier(node) && isReferenceIdentifier(node)) {
+        if (!KNOWN_GLOBALS.has(node.text) && !bindings.has(node.text)) {
+          refs.add(node.text);
+        }
+      }
+      ts.forEachChild(node, collectRefs);
+    };
+    collectRefs(statement);
+
+    const isCandidate =
+      !isImport &&
+      !isExportDecl &&
+      !isExported &&
+      !hasHandler &&
+      !isType &&
+      !isDeclare &&
+      bindings.size > 0 &&
+      [...bindings].some((b) => namesDefinedInModuleAndNeededByServer.has(b));
+    const isRoot = !isImport && !isCandidate;
+
+    statementInfos.push({
+      statement,
+      bindings,
+      refs,
+      isImport,
+      isCandidate,
+      isRoot,
+    });
+  }
+
+  const neededByClient = new Set<string>();
+  for (const info of statementInfos) {
+    if (info.isRoot) {
+      for (const name of info.bindings) neededByClient.add(name);
+      for (const name of info.refs) neededByClient.add(name);
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const info of statementInfos) {
+      if ([...info.bindings].some((b) => neededByClient.has(b))) {
+        for (const ref of info.refs) {
+          if (!neededByClient.has(ref)) {
+            neededByClient.add(ref);
+            changed = true;
+          }
         }
       }
     }
+  }
 
-    if (names.length > 0 && !names.some((name) => outsideNames.has(name))) {
-      replacements.push({
-        start: statement.getFullStart(),
-        end: statement.getEnd(),
-        text: "",
-      });
+  for (const info of statementInfos) {
+    if (info.isImport || info.isCandidate) {
+      const isNeeded = [...info.bindings].some((b) => neededByClient.has(b));
+      if (info.bindings.size > 0 && !isNeeded) {
+        replacements.push({
+          start: info.statement.getFullStart(),
+          end: info.statement.getEnd(),
+          text: "",
+        });
+      }
     }
   }
 
@@ -757,22 +828,9 @@ export function processFile(
     });
   }
 
-  const moduleDeclsJs = collectModuleDeclsJs() || undefined;
-
   // Emit deferred warnings now that we know which module-level names are captured.
   if (handlerNodes.size > 0 && options.emitWarnings) {
-    // Build the set of names that are captured via the IIFE (from moduleDeclsJs).
-    const moduleLocalNames = new Set<string>();
-    if (moduleDeclsJs) {
-      for (const statement of sf.statements) {
-        if (ts.isImportDeclaration(statement)) continue;
-        if (ts.isExportDeclaration(statement)) continue;
-        if (statementHasHandlerCall(statement)) continue;
-        for (const name of statementTopLevelBindings(statement)) {
-          if (allHandlerFreeRefs.has(name)) moduleLocalNames.add(name);
-        }
-      }
-    }
+    const moduleLocalNames = new Set(namesDefinedInModuleAndNeededByServer);
     // Sibling handlers are available as named locals in the IIFE.
     for (const name of siblingHandlerNames) {
       moduleLocalNames.add(name);
@@ -781,6 +839,8 @@ export function processFile(
       warnOnUncapturedReferences(node, endpoint, kind, moduleLocalNames);
     }
   }
+
+  const moduleDeclsJs = collectModuleDeclsJs() || undefined;
 
   registry.unregisterFile(id);
   registry.registerFile(
@@ -805,6 +865,9 @@ export function processFile(
   }
 
   const magic = new RolldownMagicString(code);
+  for (const h of helperImports) {
+    magic.prepend(`${h}\n`);
+  }
   for (const r of replacements) {
     if (r.start === r.end) {
       if (r.start === 0) magic.appendLeft(0, r.text);
