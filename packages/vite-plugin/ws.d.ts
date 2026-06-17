@@ -1,5 +1,5 @@
 /**
- * Ambient declaration for the `websocket()` macro injected by vite-plugin-server-build.
+ * Ambient declaration for the `$ws()` macro injected by vite-plugin-server-build.
  *
  * - On the server the handlers run for the lifetime of each connection.
  * - In the browser the call is replaced with `{ connect(...args) }`, which
@@ -10,34 +10,34 @@
  * `ws.args` inside every handler for the lifetime of that connection (e.g.
  * for passing an auth token).
  *
- * The value returned by `websocket()` has the same type signature wherever
+ * The value returned by `$ws()` has the same type signature wherever
  * it's referenced. On the client, call `.connect()` to open a connection. On
- * the server, call `.send()` from any sibling `backend()`/`websocket()`
+ * the server, call `.send()` from any sibling `$action()`/`$ws()`
  * handler in the same file to broadcast JSON-serializable data to every
  * currently open connection for this endpoint.
  *
- * Just like `backend()` infers `Args`/`R` from the function you pass it,
- * `websocket()` infers its message types from the handlers you pass it — no
+ * Just like `$action()` infers `Args`/`R` from the function you pass it,
+ * `$ws()` infers its message types from the handlers you pass it — no
  * explicit type arguments needed for the common case:
  *
  * @example
  *   interface ChatMessage { text: string }
  *   interface ChatBroadcast { text: string; from: string }
  *
- *   export const chat = websocket({
+ *   export const chat = $ws({
  *     // `data` annotated -> inferred as the client-to-server message type.
  *     // `ws` annotated -> inferred as the server-to-client message type.
- *     onOpen(ws: ServerWebSocket<ChatBroadcast>) {
+ *     onOpen(ws: ServerWs<ChatBroadcast>) {
  *       console.log("connected with args", ws.args);
  *     },
- *     onMessage(ws: ServerWebSocket<ChatBroadcast>, data: ChatMessage) {
+ *     onMessage(ws: ServerWs<ChatBroadcast>, data: ChatMessage) {
  *       ws.send({ text: data.text, from: "server" });
  *     },
- *     onClose(ws: ServerWebSocket<ChatBroadcast>) {},
+ *     onClose(ws: ServerWs<ChatBroadcast>) {},
  *   });
  *
- *   // server: broadcast to every connected client from a sibling backend() handler
- *   export const announce = backend(async (text: string) => {
+ *   // server: broadcast to every connected client from a sibling $action() handler
+ *   export const announce = $action(async (text: string) => {
  *     chat.send({ text, from: "server" });
  *   });
  *
@@ -48,10 +48,10 @@
  *
  * Leaving handlers unannotated keeps the previous untyped behavior (`unknown`).
  * To type `connect()`'s arguments (and therefore `ws.args`), either annotate
- * `ws: ServerWebSocket<TServerToClient, TConnectArgs>` or pass explicit type
- * arguments: `websocket<ChatMessage, ChatBroadcast, [authToken: string]>({...})`.
+ * `ws: ServerWs<TServerToClient, TConnectArgs>` or pass explicit type
+ * arguments: `$ws<ChatMessage, ChatBroadcast, [authToken: string]>({...})`.
  */
-interface ServerWebSocket<
+interface ServerWs<
   TServerToClient = unknown,
   TConnectArgs extends unknown[] = unknown[],
 > {
@@ -63,20 +63,20 @@ interface ServerWebSocket<
   close(code?: number, reason?: string): void;
 }
 
-interface WebSocketHandlers<
+interface WsHandlers<
   TClientToServer = unknown,
   TServerToClient = TClientToServer,
   TConnectArgs extends unknown[] = unknown[],
 > {
-  onOpen?(ws: ServerWebSocket<TServerToClient, TConnectArgs>): void;
+  onOpen?(ws: ServerWs<TServerToClient, TConnectArgs>): void;
   onMessage?(
-    ws: ServerWebSocket<TServerToClient, TConnectArgs>,
+    ws: ServerWs<TServerToClient, TConnectArgs>,
     data: TClientToServer,
   ): void;
-  onClose?(ws: ServerWebSocket<TServerToClient, TConnectArgs>): void;
+  onClose?(ws: ServerWs<TServerToClient, TConnectArgs>): void;
 }
 
-interface WebSocketConnection<TClientToServer = unknown, TServerToClient = TClientToServer> {
+interface WsConnection<TClientToServer = unknown, TServerToClient = TClientToServer> {
   /** Sends JSON-serializable `data` to the server over the connection. */
   send(data: TClientToServer): void;
   /** Registers a callback invoked with each JSON-deserialized message from the server. */
@@ -88,19 +88,19 @@ interface WebSocketConnection<TClientToServer = unknown, TServerToClient = TClie
   readonly readyState: number;
 }
 
-declare function websocket<
+declare function $ws<
   TClientToServer = unknown,
   TServerToClient = TClientToServer,
   TConnectArgs extends unknown[] = unknown[],
 >(
-  handlers: WebSocketHandlers<TClientToServer, TServerToClient, TConnectArgs>,
+  handlers: WsHandlers<TClientToServer, TServerToClient, TConnectArgs>,
 ): {
   /** Client: opens a new connection to this endpoint. */
-  connect(...args: TConnectArgs): WebSocketConnection<TClientToServer, TServerToClient>;
+  connect(...args: TConnectArgs): WsConnection<TClientToServer, TServerToClient>;
   /**
    * Server: serializes `data` to JSON and broadcasts it to every currently
-   * open connection for this endpoint. Call from a sibling `backend()` or
-   * `websocket()` handler in the same file.
+   * open connection for this endpoint. Call from a sibling `$action()` or
+   * `$ws()` handler in the same file.
    */
   send(data: TServerToClient): void;
 };

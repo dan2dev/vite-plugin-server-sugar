@@ -18,7 +18,7 @@ const globalState = {
   },
 };
 
-const getSomeData2 = backend(async () => {
+const getSomeData2 = $action(async () => {
   globalState.count1 += 1;
   return {
     count: globalState.count1,

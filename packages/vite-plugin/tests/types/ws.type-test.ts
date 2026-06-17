@@ -1,15 +1,15 @@
-/// <reference path="../../websocket.d.ts" />
+/// <reference path="../../ws.d.ts" />
 import { describe, it, expectTypeOf } from 'vitest';
 
 /**
- * Type tests for websocket type inference.
+ * Type tests for ws type inference.
  * Validates: Requirements 10.3, 10.4, 10.5, 10.7
  */
 
-describe('websocket type inference', () => {
-  it('websocket() with ServerWebSocket<TServerToClient> infers matching onMessage callback type on client connection', () => {
-    // Requirement 10.3: websocket() with handlers annotated with ServerWebSocket<TServerToClient>
-    // infers connect() returns a WebSocketConnection with matching onMessage callback type
+describe('ws type inference', () => {
+  it('$ws() with ServerWs<TServerToClient> infers matching onMessage callback type on client connection', () => {
+    // Requirement 10.3: $ws() with handlers annotated with ServerWs<TServerToClient>
+    // infers connect() returns a WsConnection with matching onMessage callback type
 
     interface ServerMessage {
       text: string;
@@ -20,8 +20,8 @@ describe('websocket type inference', () => {
       text: string;
     }
 
-    const chat = websocket({
-      onMessage(ws: ServerWebSocket<ServerMessage>, data: ClientMessage) {
+    const chat = $ws({
+      onMessage(ws: ServerWs<ServerMessage>, data: ClientMessage) {
         ws.send({ text: data.text, from: 'server' });
       },
     });
@@ -46,8 +46,8 @@ describe('websocket type inference', () => {
       timestamp: number;
     }
 
-    const endpoint = websocket({
-      onMessage(ws: ServerWebSocket<OutgoingPayload>, data: IncomingPayload) {
+    const endpoint = $ws({
+      onMessage(ws: ServerWs<OutgoingPayload>, data: IncomingPayload) {
         ws.send({ status: 'ok', timestamp: Date.now() });
       },
     });
@@ -59,8 +59,8 @@ describe('websocket type inference', () => {
     expectTypeOf(connection.send).parameter(0).toEqualTypeOf<IncomingPayload>();
   });
 
-  it('ws.args typed via ServerWebSocket<T, TConnectArgs> requires typed connect() arguments', () => {
-    // Requirement 10.5: ServerWebSocket<T, TConnectArgs> types connect() to require those args
+  it('ws.args typed via ServerWs<T, TConnectArgs> requires typed connect() arguments', () => {
+    // Requirement 10.5: ServerWs<T, TConnectArgs> types connect() to require those args
 
     interface BroadcastMsg {
       content: string;
@@ -68,14 +68,14 @@ describe('websocket type inference', () => {
 
     type ConnectArgs = [token: string, roomId: number];
 
-    const room = websocket({
-      onOpen(ws: ServerWebSocket<BroadcastMsg, ConnectArgs>) {
+    const room = $ws({
+      onOpen(ws: ServerWs<BroadcastMsg, ConnectArgs>) {
         // ws.args should be typed as ConnectArgs
         const [token, roomId] = ws.args;
         expectTypeOf(token).toBeString();
         expectTypeOf(roomId).toBeNumber();
       },
-      onMessage(ws: ServerWebSocket<BroadcastMsg, ConnectArgs>, data: string) {
+      onMessage(ws: ServerWs<BroadcastMsg, ConnectArgs>, data: string) {
         ws.send({ content: data });
       },
     });
@@ -85,40 +85,40 @@ describe('websocket type inference', () => {
     expectTypeOf(room.connect).parameters.toEqualTypeOf<ConnectArgs>();
   });
 
-  it('WebSocketHandlers only accepts objects with onOpen/onMessage/onClose keys', () => {
-    // Requirement 10.7: WebSocketHandlers interface only accepts objects
+  it('WsHandlers only accepts objects with onOpen/onMessage/onClose keys', () => {
+    // Requirement 10.7: WsHandlers interface only accepts objects
     // with onOpen, onMessage, or onClose method keys
 
     // Valid: all recognized handler keys
-    websocket({
-      onOpen(ws: ServerWebSocket) {},
-      onMessage(ws: ServerWebSocket, data: unknown) {},
-      onClose(ws: ServerWebSocket) {},
+    $ws({
+      onOpen(ws: ServerWs) {},
+      onMessage(ws: ServerWs, data: unknown) {},
+      onClose(ws: ServerWs) {},
     });
 
     // Valid: subset of handler keys
-    websocket({
-      onMessage(ws: ServerWebSocket, data: string) {},
+    $ws({
+      onMessage(ws: ServerWs, data: string) {},
     });
 
-    websocket({
-      onOpen(ws: ServerWebSocket) {},
-      onClose(ws: ServerWebSocket) {},
+    $ws({
+      onOpen(ws: ServerWs) {},
+      onClose(ws: ServerWs) {},
     });
 
     // @ts-expect-error - invalid handler key 'onError' should not be accepted
-    websocket({
-      onError(ws: ServerWebSocket) {},
+    $ws({
+      onError(ws: ServerWs) {},
     });
 
     // @ts-expect-error - invalid handler key 'onConnect' should not be accepted
-    websocket({
-      onConnect(ws: ServerWebSocket) {},
+    $ws({
+      onConnect(ws: ServerWs) {},
     });
 
     // @ts-expect-error - invalid handler key 'message' should not be accepted
-    websocket({
-      message(ws: ServerWebSocket, data: unknown) {},
+    $ws({
+      message(ws: ServerWs, data: unknown) {},
     });
   });
 });

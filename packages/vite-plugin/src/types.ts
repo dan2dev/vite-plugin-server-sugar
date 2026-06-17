@@ -5,7 +5,7 @@ export interface RuntimeImport {
   specifier: string;
 }
 
-export interface BackendEntry {
+export interface ActionEntry {
   endpoint: string;
   imports: RuntimeImport[];
   /** Transpiled JS arrow-function expression (types stripped). */
@@ -13,7 +13,7 @@ export interface BackendEntry {
   file: string;
   /**
    * Original source identifier when the handler is assigned via
-   * `const originalName = backend(...)`. Used by the bundle generator to
+   * `const originalName = $action(...)`. Used by the bundle generator to
    * declare named locals inside the per-file IIFE so sibling handlers can
    * call each other by their original names.
    */
@@ -26,14 +26,14 @@ export interface BackendEntry {
   hasSiblingCrossRefs?: boolean;
   /**
    * Transpiled JS of module-level (non-import) declarations from the source
-   * file that are not backend handlers. All entries from the same file share
+   * file that are not $action handlers. All entries from the same file share
    * the same value. When non-empty, the bundle generator wraps all handlers
    * from this file in a per-file IIFE so they close over the same state.
    */
   moduleDeclsJs?: string;
 }
 
-export interface WebSocketEntry {
+export interface WsEntry {
   endpoint: string;
   imports: RuntimeImport[];
   /**
@@ -43,19 +43,19 @@ export interface WebSocketEntry {
   handlersJs: string;
   file: string;
   /**
-   * Original source identifier when assigned via `const x = websocket(...)`.
+   * Original source identifier when assigned via `const x = $ws(...)`.
    * Used by the bundle generator to declare named locals inside the per-file
-   * IIFE so sibling handlers (backend or websocket) can reference each other.
+   * IIFE so sibling handlers ($action or $ws) can reference each other.
    */
   originalName?: string;
   /**
    * True when at least one handler in this file references another sibling
-   * handler (backend or websocket) by its original name.
+   * handler ($action or $ws) by its original name.
    */
   hasSiblingCrossRefs?: boolean;
   /**
-   * Transpiled JS of module-level declarations shared with sibling backend()/
-   * websocket() handlers from the same file. See {@link BackendEntry.moduleDeclsJs}.
+   * Transpiled JS of module-level declarations shared with sibling $action()/
+   * $ws() handlers from the same file. See {@link ActionEntry.moduleDeclsJs}.
    */
   moduleDeclsJs?: string;
 }

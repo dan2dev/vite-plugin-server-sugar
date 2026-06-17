@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ViteDevServer } from 'vite';
 import { Registry } from '../../src/core/registry';
-import { handleGeneratedBackendRequest } from '../../src/dev-server/middleware';
+import { handleGeneratedActionRequest } from '../../src/dev-server/middleware';
 
 /**
  * Unit tests for middleware request handling.
@@ -121,7 +121,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer();
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(405);
       expect(res._headers['Allow']).toBe('POST');
@@ -133,7 +133,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer();
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(405);
       expect(res._headers['Allow']).toBe('POST');
@@ -144,7 +144,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer();
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(405);
       expect(res._headers['Allow']).toBe('POST');
@@ -158,7 +158,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(handler).toHaveBeenCalledWith();
       expect(res._statusCode).toBe(200);
@@ -171,7 +171,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer();
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(500);
       const parsed = JSON.parse(res._body);
@@ -186,7 +186,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(handler).toHaveBeenCalledWith({ name: 'test' });
     });
@@ -197,7 +197,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(handler).toHaveBeenCalledWith('hello');
     });
@@ -208,7 +208,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(handler).toHaveBeenCalledWith(42);
     });
@@ -219,7 +219,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(handler).toHaveBeenCalledWith('arg1', 'arg2');
     });
@@ -232,7 +232,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(204);
       expect(res._body).toBe('');
@@ -248,7 +248,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(500);
       const parsed = JSON.parse(res._body);
@@ -263,7 +263,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, 'test', registry);
+      await handleGeneratedActionRequest(server, req, res, 'test', registry);
 
       expect(res._statusCode).toBe(500);
       const parsed = JSON.parse(res._body);
@@ -283,8 +283,8 @@ describe('Middleware Request Handling', () => {
       const server = createMockServer(handler);
 
       // The caller (index.ts) decodes the percent-encoded path before calling
-      // handleGeneratedBackendRequest, so we pass the decoded endpoint directly.
-      await handleGeneratedBackendRequest(server, req, res, endpointName, registry);
+      // handleGeneratedActionRequest, so we pass the decoded endpoint directly.
+      await handleGeneratedActionRequest(server, req, res, endpointName, registry);
 
       expect(res._statusCode).toBe(200);
       expect(JSON.parse(res._body)).toEqual({ dispatched: true });
@@ -307,7 +307,7 @@ describe('Middleware Request Handling', () => {
       const res = createMockRes();
       const server = createMockServer(handler);
 
-      await handleGeneratedBackendRequest(server, req, res, decoded, registry);
+      await handleGeneratedActionRequest(server, req, res, decoded, registry);
 
       expect(res._statusCode).toBe(200);
       expect(handler).toHaveBeenCalled();

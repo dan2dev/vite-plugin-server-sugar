@@ -1,7 +1,7 @@
 import { dirname, resolve } from "node:path";
 
 import { Registry } from "../core/registry";
-import type { BackendEntry, RuntimeImport, WebSocketEntry } from "../types";
+import type { ActionEntry, RuntimeImport, WsEntry } from "../types";
 import {
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
@@ -17,7 +17,7 @@ import {
   VIRTUAL_WS_PREFIX,
   WS_RUNTIME_GLOBAL_KEY,
 } from "../constants";
-import { backendConstName, websocketConstName } from "../utils/crypto";
+import { actionConstName, wsConstName } from "../utils/crypto";
 import { isRelativeImport, normalizePath, toImportPath } from "../utils/path";
 
 export function runtimeImportSpecifier(
@@ -74,7 +74,7 @@ export function renderRuntimeImport(
   return `import { ${namedImports} } from ${specifier};`;
 }
 
-export function virtualBackendFileId(file: string): string {
+export function virtualActionFileId(file: string): string {
   return VIRTUAL_FILE_PREFIX + encodeURIComponent(file);
 }
 
@@ -96,34 +96,34 @@ export function resolveVirtualId(id: string): string | undefined {
   }
 }
 
-function backendEntriesForFile(
-  registry: Registry<BackendEntry>,
+function actionEntriesForFile(
+  registry: Registry<ActionEntry>,
   file: string,
-): BackendEntry[] {
+): ActionEntry[] {
   return [...registry.values()].filter((entry) => entry.file === file);
 }
 
 function wsEntriesForFile(
-  wsRegistry: Registry<WebSocketEntry>,
+  wsRegistry: Registry<WsEntry>,
   file: string,
-): WebSocketEntry[] {
+): WsEntry[] {
   return [...wsRegistry.values()].filter((entry) => entry.file === file);
 }
 
 /**
- * Generates the combined per-file module for ALL handlers (backend() and
- * websocket()) declared in one source file. Both kinds share a single
+ * Generates the combined per-file module for ALL handlers (action() and
+ * ws()) declared in one source file. Both kinds share a single
  * generated module — and therefore a single IIFE instance — so module-level
  * state declared in the file is one shared object, not duplicated per kind.
  */
 function combinedFileModuleCode(
-  backendEntries: BackendEntry[],
-  wsEntries: WebSocketEntry[],
+  actionEntries: ActionEntry[],
+  wsEntries: WsEntry[],
 ): string {
   const seenImports = new Set<string>();
   const importLines: string[] = [];
 
-  for (const entry of [...backendEntries, ...wsEntries]) {
+  for (const entry of [...actionEntries, ...wsEntries]) {
     for (const runtimeImport of entry.imports) {
       const line = renderRuntimeImport(runtimeImport, entry.file, null);
       if (!seenImports.has(line)) {
@@ -133,14 +133,14 @@ function combinedFileModuleCode(
     }
   }
 
-  const first = backendEntries[0] ?? wsEntries[0];
+  const first = actionEntries[0] ?? wsEntries[0];
   const moduleDeclsJs = first?.moduleDeclsJs ?? "";
   const hasSiblingCrossRefs = first?.hasSiblingCrossRefs ?? false;
   const useIIFE = !!moduleDeclsJs || hasSiblingCrossRefs;
 
   const allConstNames = [
-    ...backendEntries.map((e) => backendConstName(e.endpoint)),
-    ...wsEntries.map((e) => websocketConstName(e.endpoint)),
+    ...actionEntries.map((e) => actionConstName(e.endpoint)),
+    ...wsEntries.map((e) => wsConstName(e.endpoint)),
   ];
 
   const lines: string[] = [];
@@ -168,12 +168,12 @@ function combinedFileModuleCode(
   }
 
   if (!useIIFE) {
-    for (const entry of backendEntries) {
-      lines.push(`const ${backendConstName(entry.endpoint)} = ${entry.fnJs};`);
+    for (const entry of actionEntries) {
+      lines.push(`const ${actionConstName(entry.endpoint)} = ${entry.fnJs};`);
     }
     for (const entry of wsEntries) {
       lines.push(
-        `const ${websocketConstName(entry.endpoint)} = __wrapWs(${JSON.stringify(entry.endpoint)}, ${entry.handlersJs});`,
+        `const ${wsConstName(entry.endpoint)} = __wrapWs(${JSON.stringify(entry.endpoint)}, ${entry.handlersJs});`,
       );
     }
   } else {
@@ -185,13 +185,13 @@ function combinedFileModuleCode(
       }
     }
 
-    for (const entry of backendEntries) {
-      const constName = backendConstName(entry.endpoint);
+    for (const entry of actionEntries) {
+      const constName = actionConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(`  const ${localName} = ${entry.fnJs};`);
     }
     for (const entry of wsEntries) {
-      const constName = websocketConstName(entry.endpoint);
+      const constName = wsConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(
         `  const ${localName} = __wrapWs(${JSON.stringify(entry.endpoint)}, ${entry.handlersJs});`,
@@ -199,13 +199,13 @@ function combinedFileModuleCode(
     }
 
     lines.push("  return {");
-    for (const entry of backendEntries) {
-      const constName = backendConstName(entry.endpoint);
+    for (const entry of actionEntries) {
+      const constName = actionConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(`    ${constName}: ${localName},`);
     }
     for (const entry of wsEntries) {
-      const constName = websocketConstName(entry.endpoint);
+      const constName = wsConstName(entry.endpoint);
       const localName = entry.originalName ?? constName;
       lines.push(`    ${constName}: ${localName},`);
     }
@@ -218,8 +218,8 @@ function combinedFileModuleCode(
 
 export function loadVirtualModule(
   id: string,
-  registry: Registry<BackendEntry>,
-  wsRegistry?: Registry<WebSocketEntry>,
+  registry: Registry<ActionEntry>,
+  wsRegistry?: Registry<WsEntry>,
 ) {
   if (id === RESOLVED_CLIENT_HELPER_ID) {
     return {
@@ -281,12 +281,12 @@ export function loadVirtualModule(
 
   if (id.startsWith(RESOLVED_FILE_PREFIX)) {
     const file = decodeURIComponent(id.slice(RESOLVED_FILE_PREFIX.length));
-    const fileBackendEntries = backendEntriesForFile(registry, file);
+    const fileActionEntries = actionEntriesForFile(registry, file);
     const fileWsEntries = wsRegistry ? wsEntriesForFile(wsRegistry, file) : [];
-    if (fileBackendEntries.length === 0 && fileWsEntries.length === 0) return;
+    if (fileActionEntries.length === 0 && fileWsEntries.length === 0) return;
 
     return {
-      code: combinedFileModuleCode(fileBackendEntries, fileWsEntries),
+      code: combinedFileModuleCode(fileActionEntries, fileWsEntries),
       map: null,
     };
   }
@@ -298,7 +298,7 @@ export function loadVirtualModule(
     if (!entry) return;
 
     return {
-      code: `export { ${websocketConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualBackendFileId(entry.file))};\n`,
+      code: `export { ${wsConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualActionFileId(entry.file))};\n`,
       map: null,
     };
   }
@@ -309,7 +309,7 @@ export function loadVirtualModule(
   if (!entry) return;
 
   return {
-    code: `export { ${backendConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualBackendFileId(entry.file))};\n`,
+    code: `export { ${actionConstName(entry.endpoint)} as default } from ${JSON.stringify(virtualActionFileId(entry.file))};\n`,
     map: null,
   };
 }

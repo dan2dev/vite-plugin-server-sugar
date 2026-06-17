@@ -3,7 +3,7 @@ import { fc, arbIdentifierName } from '../helpers/generators';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
 import { isValidJs } from '../helpers/parse-helpers';
-import type { BackendEntry, WebSocketEntry } from '../../src/types';
+import type { ActionEntry, WsEntry } from '../../src/types';
 
 describe('Processor', () => {
   it('Property 11: Processor Generates Unique Endpoints for Duplicate Labels', () => {
@@ -14,14 +14,14 @@ describe('Processor', () => {
         const registry = new Registry();
         const wsRegistry = new Registry();
 
-        // Generate a source file with N backend() calls inside an array literal.
+        // Generate a source file with N $action() calls inside an array literal.
         // All calls are in the same array under `export default`, producing labels
         // like default.0, default.1, etc. The property verifies no duplicate endpoints.
-        const backendCalls = Array.from(
+        const actionCalls = Array.from(
           { length: n },
-          (_, i) => `backend(() => ${i + 1})`,
+          (_, i) => `$action(() => ${i + 1})`,
         ).join(', ');
-        const source = `export default [${backendCalls}]`;
+        const source = `export default [${actionCalls}]`;
 
         const fileId = '/project/src/handlers.ts';
 
@@ -34,7 +34,7 @@ describe('Processor', () => {
         // Collect all registered endpoints for this file
         const endpoints = registry.getEndpointsForFile(fileId);
 
-        // All N backend() calls should have produced registered endpoints
+        // All N $action() calls should have produced registered endpoints
         expect(endpoints.size).toBe(n);
 
         // Verify all endpoints are unique (Set guarantees uniqueness,
@@ -56,16 +56,16 @@ describe('Processor', () => {
     // Feature: vite-plugin-quality-testing, Property 11: Processor Generates Unique Endpoints for Duplicate Labels
     // **Validates: Requirements 1.5**
     // This test uses `var` redeclarations to force the same inferred label ("handler")
-    // for multiple backend() calls, triggering the position disambiguation logic.
+    // for multiple $action() calls, triggering the position disambiguation logic.
     fc.assert(
       fc.property(fc.integer({ min: 2, max: 5 }), (n) => {
         const registry = new Registry();
         const wsRegistry = new Registry();
 
-        // Generate N `var handler = backend(...)` statements — all produce label "handler"
+        // Generate N `var handler = $action(...)` statements — all produce label "handler"
         const statements = Array.from(
           { length: n },
-          (_, i) => `var handler = backend(() => ${i + 1});`,
+          (_, i) => `var handler = $action(() => ${i + 1});`,
         ).join('\n');
         const source = statements;
 
@@ -80,7 +80,7 @@ describe('Processor', () => {
         // Collect all registered endpoints for this file
         const endpoints = registry.getEndpointsForFile(fileId);
 
-        // All N backend() calls should have produced registered endpoints
+        // All N $action() calls should have produced registered endpoints
         expect(endpoints.size).toBe(n);
 
         // Verify all endpoints are unique — the uniqueEndpoint function
@@ -115,11 +115,11 @@ describe('Processor', () => {
           const wsRegistry = new Registry();
           const fileId = '/project/src/my-handlers.ts';
 
-          // Step 1: Process a file with N backend() handlers (generates endpoints)
+          // Step 1: Process a file with N $action() handlers (generates endpoints)
           const sourceWithHandlers = handlerNames
             .map(
               (name, i) =>
-                `const ${name}_${i} = backend((arg: string) => arg + "${name}");`,
+                `const ${name}_${i} = $action((arg: string) => arg + "${name}");`,
             )
             .join('\n');
 
@@ -133,7 +133,7 @@ describe('Processor', () => {
           const endpointsAfterFirst = registry.getEndpointsForFile(fileId);
           expect(endpointsAfterFirst.size).toBe(handlerNames.length);
 
-          // Step 3: Re-process same file with code that has NO backend()/websocket() calls
+          // Step 3: Re-process same file with code that has NO $action()/$ws() calls
           const sourceWithoutHandlers = plainVarNames
             .map((name, i) => `const ${name}_plain_${i} = ${i + 1};`)
             .join('\n');
@@ -170,10 +170,10 @@ describe('Processor', () => {
           const wsRegistry = new Registry();
           const fileId = '/project/src/server-imports.ts';
 
-          // Build a source file where the import is used ONLY inside backend() handler
+          // Build a source file where the import is used ONLY inside $action() handler
           const source = [
             `import { ${importName} } from "${moduleName}";`,
-            `const handler = backend((arg: string) => ${importName}(arg));`,
+            `const handler = $action((arg: string) => ${importName}(arg));`,
           ].join('\n');
 
           const result = processFile(source, fileId, {
@@ -182,11 +182,11 @@ describe('Processor', () => {
             root: '/project',
           });
 
-          // The processor should produce output (file has a backend() call)
+          // The processor should produce output (file has a $action() call)
           if (result === null) return; // skip if not processed
 
           // The client output should NOT contain the import statement
-          // because the imported identifier is only referenced inside backend()
+          // because the imported identifier is only referenced inside $action()
           const importPattern = `from "${moduleName}"`;
           expect(result.code).not.toContain(importPattern);
 
@@ -219,9 +219,9 @@ describe('Processor', () => {
       .tuple(
         // Module-level declarations (1-3)
         fc.array(arbModuleDecl, { minLength: 1, maxLength: 3 }),
-        // Number of backend handlers (0-3)
+        // Number of action handlers (0-3)
         fc.integer({ min: 0, max: 3 }),
-        // Number of websocket handlers (0-3)
+        // Number of ws handlers (0-3)
         fc.integer({ min: 0, max: 3 }),
       )
       .filter(([_, numBackend, numWs]) => numBackend + numWs >= 2)
@@ -238,17 +238,17 @@ describe('Processor', () => {
         // Reference at least one shared declaration from each handler
         const sharedRef = decls[0].name;
 
-        // Emit backend handlers that reference the shared state
+        // Emit action handlers that reference the shared state
         for (let i = 0; i < numBackend; i++) {
           lines.push(
-            `const backendHandler_${i} = backend((arg: string) => { ${sharedRef}; return arg; });`,
+            `const actionHandler_${i} = $action((arg: string) => { ${sharedRef}; return arg; });`,
           );
         }
 
-        // Emit websocket handlers that reference the shared state
+        // Emit ws handlers that reference the shared state
         for (let i = 0; i < numWs; i++) {
           lines.push(
-            `const wsHandler_${i} = websocket({ onMessage(ws, data) { ${sharedRef}; ws.send(data); } });`,
+            `const wsHandler_${i} = $ws({ onMessage(ws, data) { ${sharedRef}; ws.send(data); } });`,
           );
         }
 
@@ -257,8 +257,8 @@ describe('Processor', () => {
 
     fc.assert(
       fc.property(arbSourceWithSharedState, ({ source, numBackend, numWs }) => {
-        const registry = new Registry<BackendEntry>();
-        const wsRegistry = new Registry<WebSocketEntry>();
+        const registry = new Registry<ActionEntry>();
+        const wsRegistry = new Registry<WsEntry>();
         const fileId = '/project/src/shared-state.ts';
 
         processFile(source, fileId, {
@@ -268,17 +268,17 @@ describe('Processor', () => {
         });
 
         // Collect all entries from both registries for this file
-        const backendEndpoints = registry.getEndpointsForFile(fileId);
+        const actionEndpoints = registry.getEndpointsForFile(fileId);
         const wsEndpoints = wsRegistry.getEndpointsForFile(fileId);
 
         // We should have entries registered
-        expect(backendEndpoints.size).toBe(numBackend);
+        expect(actionEndpoints.size).toBe(numBackend);
         expect(wsEndpoints.size).toBe(numWs);
 
         // Collect all moduleDeclsJs values from all entries
         const allModuleDeclsValues: (string | undefined)[] = [];
 
-        for (const ep of backendEndpoints) {
+        for (const ep of actionEndpoints) {
           const entry = registry.get(ep);
           expect(entry).toBeDefined();
           allModuleDeclsValues.push(entry!.moduleDeclsJs);
@@ -352,38 +352,38 @@ describe('Processor', () => {
       ),
     );
 
-    // Generator for websocket handler patterns
+    // Generator for ws handler patterns
     const arbWsHandler = fc.constantFrom(
       '{ onMessage(ws, data) { ws.send(data); } }',
       '{ onOpen(ws) { }, onMessage(ws, msg) { ws.send(msg); }, onClose(ws) { } }',
       '{ onMessage(ws, data) { ws.send(JSON.stringify(data)); } }',
     );
 
-    // Generator for source files containing backend() and/or websocket() calls
+    // Generator for source files containing $action() and/or $ws() calls
     const arbSourceWithHandlers = fc
       .tuple(
-        // backend calls
+        // action calls
         fc.array(
           fc.tuple(arbIdentifierName(), arbBackendHandler),
           { minLength: 0, maxLength: 3 },
         ),
-        // websocket calls
+        // ws calls
         fc.array(
           fc.tuple(arbIdentifierName(), arbWsHandler),
           { minLength: 0, maxLength: 2 },
         ),
       )
-      .filter(([backends, websockets]) => backends.length + websockets.length > 0)
-      .map(([backends, websockets]) => {
+      .filter(([actions, wss]) => actions.length + wss.length > 0)
+      .map(([actions, wss]) => {
         const lines: string[] = [];
 
         // Generate unique variable names using index suffixes
-        backends.forEach(([name, handler], i) => {
-          lines.push(`const ${name}_b${i} = backend(${handler});`);
+        actions.forEach(([name, handler], i) => {
+          lines.push(`const ${name}_b${i} = $action(${handler});`);
         });
 
-        websockets.forEach(([name, handler], i) => {
-          lines.push(`const ${name}_w${i} = websocket(${handler});`);
+        wss.forEach(([name, handler], i) => {
+          lines.push(`const ${name}_w${i} = $ws(${handler});`);
         });
 
         return lines.join('\n');
@@ -401,7 +401,7 @@ describe('Processor', () => {
           root: '/project',
         });
 
-        // processFile should return a result for files with backend/websocket calls
+        // processFile should return a result for files with action/ws calls
         if (result === null) {
           // If null, the regex fast-path didn't match — skip this case
           return true;

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   hash,
   toKebabCase,
-  backendConstName,
-  websocketConstName,
+  actionConstName,
+  wsConstName,
 } from '../../src/utils/crypto';
 
 const VALID_JS_IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -72,68 +72,68 @@ describe('crypto utilities', () => {
     });
   });
 
-  describe('backendConstName', () => {
+  describe('actionConstName', () => {
     it('handles endpoints with / characters', () => {
-      const result = backendConstName('/api/users');
+      const result = actionConstName('/api/users');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with . characters', () => {
-      const result = backendConstName('api.users.get');
+      const result = actionConstName('api.users.get');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with @ characters', () => {
-      const result = backendConstName('@scope/package');
+      const result = actionConstName('@scope/package');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with mixed special characters', () => {
-      const result = backendConstName('/api/@user/profile.get');
+      const result = actionConstName('/api/@user/profile.get');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('produces consistent output for the same input', () => {
-      const result1 = backendConstName('/api/todos');
-      const result2 = backendConstName('/api/todos');
+      const result1 = actionConstName('/api/todos');
+      const result2 = actionConstName('/api/todos');
       expect(result1).toBe(result2);
     });
 
-    it('starts with __backend_ prefix', () => {
-      const result = backendConstName('test');
-      expect(result).toMatch(/^__backend_/);
+    it('starts with __action_ prefix', () => {
+      const result = actionConstName('test');
+      expect(result).toMatch(/^__action_/);
     });
   });
 
-  describe('websocketConstName', () => {
+  describe('wsConstName', () => {
     it('handles endpoints with / characters', () => {
-      const result = websocketConstName('/ws/chat');
+      const result = wsConstName('/ws/chat');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with . characters', () => {
-      const result = websocketConstName('ws.chat.room');
+      const result = wsConstName('ws.chat.room');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with @ characters', () => {
-      const result = websocketConstName('@scope/socket');
+      const result = wsConstName('@scope/socket');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('handles endpoints with mixed special characters', () => {
-      const result = websocketConstName('/ws/@room/live.stream');
+      const result = wsConstName('/ws/@room/live.stream');
       expect(result).toMatch(VALID_JS_IDENTIFIER);
     });
 
     it('produces consistent output for the same input', () => {
-      const result1 = websocketConstName('/ws/chat');
-      const result2 = websocketConstName('/ws/chat');
+      const result1 = wsConstName('/ws/chat');
+      const result2 = wsConstName('/ws/chat');
       expect(result1).toBe(result2);
     });
 
     it('starts with __ws_ prefix', () => {
-      const result = websocketConstName('test');
+      const result = wsConstName('test');
       expect(result).toMatch(/^__ws_/);
     });
   });

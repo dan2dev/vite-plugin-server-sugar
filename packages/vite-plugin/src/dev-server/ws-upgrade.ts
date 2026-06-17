@@ -3,16 +3,16 @@ import type { Duplex } from "node:stream";
 import type { ViteDevServer } from "vite";
 import { WebSocketServer, type WebSocket } from "ws";
 import { Registry } from "../core/registry";
-import type { WebSocketEntry } from "../types";
+import type { WsEntry } from "../types";
 import { VIRTUAL_WS_PREFIX, WS_API_PREFIX, WS_RUNTIME_GLOBAL_KEY } from "../constants";
 import { requestUrl } from "./middleware";
 
-type ServerWebSocket = WebSocket & { args: unknown[] };
+type ServerWs = WebSocket & { args: unknown[] };
 
-interface WebSocketHandlers {
-  onOpen?(ws: ServerWebSocket): void;
-  onMessage?(ws: ServerWebSocket, data: unknown): void;
-  onClose?(ws: ServerWebSocket): void;
+interface WsHandlers {
+  onOpen?(ws: ServerWs): void;
+  onMessage?(ws: ServerWs, data: unknown): void;
+  onClose?(ws: ServerWs): void;
 }
 
 function parseArgs(raw: string | null): unknown[] {
@@ -31,25 +31,25 @@ function parseArgs(raw: string | null): unknown[] {
  * sockets registered here. Shared via `globalThis` since the two run as
  * separate module instances.
  */
-function wsConnections(): Map<string, Set<ServerWebSocket>> {
+function wsConnections(): Map<string, Set<ServerWs>> {
   const g = globalThis as Record<string, unknown>;
   return (g[WS_RUNTIME_GLOBAL_KEY] ??= new Map()) as Map<
     string,
-    Set<ServerWebSocket>
+    Set<ServerWs>
   >;
 }
 
 /**
  * Hooks into the Vite dev server's underlying HTTP server to upgrade
- * connections for `websocket()` endpoints in-process, using the `ws`
+ * connections for `ws()` endpoints in-process, using the `ws`
  * package (Bun's own server uses native `Bun.serve` upgrades instead — see
- * build/bundle-generator.ts). Running in-process means a file's `backend()`
- * and `websocket()` handlers share the same module instance and therefore
+ * build/bundle-generator.ts). Running in-process means a file's `action()`
+ * and `ws()` handlers share the same module instance and therefore
  * the same module-level state in dev mode, matching production.
  */
 export function setupWebsocketUpgrade(
   server: ViteDevServer,
-  wsRegistry: Registry<WebSocketEntry>,
+  wsRegistry: Registry<WsEntry>,
 ): void {
   const httpServer = server.httpServer;
   if (!httpServer) return;
@@ -82,9 +82,9 @@ export function setupWebsocketUpgrade(
         void (async () => {
           try {
             const mod = await server.ssrLoadModule(VIRTUAL_WS_PREFIX + endpoint);
-            const handlers = mod.default as WebSocketHandlers;
+            const handlers = mod.default as WsHandlers;
 
-            const ws = rawSocket as ServerWebSocket;
+            const ws = rawSocket as ServerWs;
             ws.args = args;
             const rawSend = rawSocket.send.bind(rawSocket);
             rawSocket.send = ((data: unknown) =>

@@ -30,7 +30,7 @@ export function hasRequestBody(req: IncomingMessage): boolean {
   return method !== 'GET' && method !== 'HEAD';
 }
 
-function backendArgsFromBody(body: Buffer): unknown[] {
+function actionArgsFromBody(body: Buffer): unknown[] {
   if (body.length === 0) return [];
 
   const payload = JSON.parse(body.toString()) as unknown;
@@ -89,7 +89,7 @@ export async function loadServerApp(
   return app;
 }
 
-export async function handleGeneratedBackendRequest(
+export async function handleGeneratedActionRequest(
   server: ViteDevServer,
   req: IncomingMessage,
   res: ServerResponse,
@@ -104,13 +104,13 @@ export async function handleGeneratedBackendRequest(
 
   if (!registry.has(endpoint)) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: `No backend handler registered: '${endpoint}'` }));
+    res.end(JSON.stringify({ error: `No action handler registered: '${endpoint}'` }));
     return;
   }
 
   try {
     const body = hasRequestBody(req) ? await readNodeBody(req) : Buffer.alloc(0);
-    const args = backendArgsFromBody(body);
+    const args = actionArgsFromBody(body);
     const mod = await server.ssrLoadModule(VIRTUAL_PREFIX + endpoint);
     const fn = mod.default as (...args: unknown[]) => unknown;
     const result = await fn(...args);

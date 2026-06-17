@@ -1,40 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
-import type { BackendEntry, WebSocketEntry } from '../../src/types';
+import type { ActionEntry, WsEntry } from '../../src/types';
 
 function makeOptions() {
   return {
-    registry: new Registry<BackendEntry>(),
-    wsRegistry: new Registry<WebSocketEntry>(),
+    registry: new Registry<ActionEntry>(),
+    wsRegistry: new Registry<WsEntry>(),
     root: '/project',
   };
 }
 
 describe('client replacement output', () => {
-  describe('backend() replacement produces async arrow function with __backendFetch', () => {
-    it('replaces backend() call with async arrow function calling __backendFetch', () => {
-      const code = `const getTodos = backend(async (limit: number) => {
+  describe('$action() replacement produces async arrow function with __actionFetch', () => {
+    it('replaces $action() call with async arrow function calling __actionFetch', () => {
+      const code = `const getTodos = $action(async (limit: number) => {
   return db.query(limit);
 });`;
       const result = processFile(code, '/project/src/todos.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).toContain('__backendFetch');
-      expect(result!.code).toContain('async (...__backendArgs)');
-      expect(result!.code).toContain('JSON.stringify(__backendArgs)');
+      expect(result!.code).toContain('__actionFetch');
+      expect(result!.code).toContain('async (...__actionArgs)');
+      expect(result!.code).toContain('JSON.stringify(__actionArgs)');
     });
 
-    it('includes import for __backendFetch from the virtual module', () => {
-      const code = `const getTodos = backend(async () => []);`;
+    it('includes import for __actionFetch from the virtual module', () => {
+      const code = `const getTodos = $action(async () => []);`;
       const result = processFile(code, '/project/src/todos.ts', makeOptions());
       expect(result).not.toBeNull();
       expect(result!.code).toContain(
-        'import { __backendFetch } from "virtual:server-build/backend-fetch"',
+        'import { __actionFetch } from "virtual:server-build/action-fetch"',
       );
     });
 
-    it('includes the correct URL-encoded endpoint in the __backendFetch call', () => {
-      const code = `const getTodos = backend(async () => []);`;
+    it('includes the correct URL-encoded endpoint in the __actionFetch call', () => {
+      const code = `const getTodos = $action(async () => []);`;
       const result = processFile(code, '/project/src/todos.ts', makeOptions());
       expect(result).not.toBeNull();
       // The endpoint URL should contain the API prefix and the endpoint path
@@ -43,31 +43,31 @@ describe('client replacement output', () => {
     });
   });
 
-  describe('websocket() replacement produces object with connect method calling __websocketConnect', () => {
-    it('replaces websocket() call with object containing connect method', () => {
-      const code = `const chat = websocket({
+  describe('$ws() replacement produces object with connect method calling __wsConnect', () => {
+    it('replaces $ws() call with object containing connect method', () => {
+      const code = `const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/chat.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).toContain('__websocketConnect');
+      expect(result!.code).toContain('__wsConnect');
       expect(result!.code).toContain('connect:');
-      expect(result!.code).toContain('(...__websocketArgs)');
+      expect(result!.code).toContain('(...__wsArgs)');
     });
 
-    it('includes import for __websocketConnect from the virtual module', () => {
-      const code = `const chat = websocket({
+    it('includes import for __wsConnect from the virtual module', () => {
+      const code = `const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/chat.ts', makeOptions());
       expect(result).not.toBeNull();
       expect(result!.code).toContain(
-        'import { __websocketConnect } from "virtual:server-build/websocket-connect"',
+        'import { __wsConnect } from "virtual:server-build/ws-connect"',
       );
     });
 
     it('includes the correct WebSocket endpoint URL', () => {
-      const code = `const chat = websocket({
+      const code = `const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/chat.ts', makeOptions());
@@ -77,63 +77,63 @@ describe('client replacement output', () => {
     });
   });
 
-  describe('aliased import when __backendFetch identifier already exists in file', () => {
-    it('uses aliased import when __backendFetch is already defined in the file', () => {
-      const code = `const __backendFetch = "something else";
-const getTodos = backend(async () => []);`;
+  describe('aliased import when __actionFetch identifier already exists in file', () => {
+    it('uses aliased import when __actionFetch is already defined in the file', () => {
+      const code = `const __actionFetch = "something else";
+const getTodos = $action(async () => []);`;
       const result = processFile(code, '/project/src/todos.ts', makeOptions());
       expect(result).not.toBeNull();
-      // Should use an alias like __backendFetch_1
-      expect(result!.code).toContain('__backendFetch_1');
+      // Should use an alias like __actionFetch_1
+      expect(result!.code).toContain('__actionFetch_1');
       expect(result!.code).toContain(
-        '__backendFetch as __backendFetch_1',
+        '__actionFetch as __actionFetch_1',
       );
     });
 
-    it('uses aliased import when __websocketConnect is already defined in the file', () => {
-      const code = `const __websocketConnect = "something else";
-const chat = websocket({
+    it('uses aliased import when __wsConnect is already defined in the file', () => {
+      const code = `const __wsConnect = "something else";
+const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/chat.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).toContain('__websocketConnect_1');
+      expect(result!.code).toContain('__wsConnect_1');
       expect(result!.code).toContain(
-        '__websocketConnect as __websocketConnect_1',
+        '__wsConnect as __wsConnect_1',
       );
     });
   });
 
-  describe('declare const backend / declare function websocket shims are stripped', () => {
-    it('strips declare const backend shim from output', () => {
-      const code = `declare const backend: <T extends (...args: any[]) => any>(fn: T) => T;
-const getTodos = backend(async () => []);`;
+  describe('declare function $action / declare function $ws shims are stripped', () => {
+    it('strips declare function $action shim from output', () => {
+      const code = `declare function $action<Args extends unknown[], R>(fn: (...args: Args) => R | Promise<R>): (...args: Args) => Promise<Awaited<R>>;
+const getTodos = $action(async () => []);`;
       const result = processFile(code, '/project/src/todos.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).not.toContain('declare const backend');
+      expect(result!.code).not.toContain('declare function $action');
     });
 
-    it('strips declare function websocket shim from output', () => {
-      const code = `declare function websocket<T>(handlers: T): { connect: () => void };
-const chat = websocket({
+    it('strips declare function $ws shim from output', () => {
+      const code = `declare function $ws<T>(handlers: T): { connect: () => void };
+const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/chat.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).not.toContain('declare function websocket');
+      expect(result!.code).not.toContain('declare function $ws');
     });
 
     it('strips both shims when both are present', () => {
-      const code = `declare const backend: <T extends (...args: any[]) => any>(fn: T) => T;
-declare function websocket<T>(handlers: T): { connect: () => void };
-const getTodos = backend(async () => []);
-const chat = websocket({
+      const code = `declare function $action<T>(fn: T): T;
+declare function $ws<T>(handlers: T): any;
+const getTodos = $action(async () => []);
+const chat = $ws({
   onMessage(ws, data: string) { ws.send(data); },
 });`;
       const result = processFile(code, '/project/src/app.ts', makeOptions());
       expect(result).not.toBeNull();
-      expect(result!.code).not.toContain('declare const backend');
-      expect(result!.code).not.toContain('declare function websocket');
+      expect(result!.code).not.toContain('declare function $action');
+      expect(result!.code).not.toContain('declare function $ws');
     });
   });
 });

@@ -1,6 +1,6 @@
-import type { BackendEntry } from '../types';
+import type { ActionEntry } from '../types';
 
-export class Registry<T extends { file: string } = BackendEntry> {
+export class Registry<T extends { file: string } = ActionEntry> {
   private registry = new Map<string, T>();
   private entriesByFile = new Map<string, Set<string>>();
 

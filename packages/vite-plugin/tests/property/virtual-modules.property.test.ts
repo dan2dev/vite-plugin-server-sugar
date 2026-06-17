@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { fc, arbBackendEntry, arbWebSocketEntry } from '../helpers/generators';
-import { loadVirtualModule, virtualBackendFileId, runtimeImportSpecifier } from '../../src/dev-server/virtual-modules';
+import { fc, arbActionEntry, arbWsEntry } from '../helpers/generators';
+import { loadVirtualModule, virtualActionFileId, runtimeImportSpecifier } from '../../src/dev-server/virtual-modules';
 import { Registry } from '../../src/core/registry';
 import { RESOLVED_PREFIX, RESOLVED_FILE_PREFIX } from '../../src/constants';
-import { backendConstName, websocketConstName } from '../../src/utils/crypto';
-import type { BackendEntry, WebSocketEntry } from '../../src/types';
+import { actionConstName, wsConstName } from '../../src/utils/crypto';
+import type { ActionEntry, WsEntry } from '../../src/types';
 
 describe('Virtual Modules Property Tests', () => {
   it('Property 22: Virtual Module Combined File Exports All Handler Constants', () => {
@@ -12,24 +12,24 @@ describe('Virtual Modules Property Tests', () => {
     // **Validates: Requirements 5.3**
     fc.assert(
       fc.property(
-        fc.array(arbBackendEntry(), { minLength: 1, maxLength: 5 }),
-        fc.array(arbWebSocketEntry(), { minLength: 0, maxLength: 3 }),
-        (backendEntries, wsEntries) => {
+        fc.array(arbActionEntry(), { minLength: 1, maxLength: 5 }),
+        fc.array(arbWsEntry(), { minLength: 0, maxLength: 3 }),
+        (actionEntries, wsEntries) => {
           // Force all entries to share the same file
-          const sharedFile = backendEntries[0].file;
-          for (const entry of backendEntries) entry.file = sharedFile;
+          const sharedFile = actionEntries[0].file;
+          for (const entry of actionEntries) entry.file = sharedFile;
           for (const entry of wsEntries) entry.file = sharedFile;
 
           // Make sure endpoints are unique
           const usedEndpoints = new Set<string>();
-          const uniqueBackend: BackendEntry[] = [];
-          for (const entry of backendEntries) {
+          const uniqueBackend: ActionEntry[] = [];
+          for (const entry of actionEntries) {
             if (!usedEndpoints.has(entry.endpoint)) {
               usedEndpoints.add(entry.endpoint);
               uniqueBackend.push(entry);
             }
           }
-          const uniqueWs: WebSocketEntry[] = [];
+          const uniqueWs: WsEntry[] = [];
           for (const entry of wsEntries) {
             if (!usedEndpoints.has(entry.endpoint)) {
               usedEndpoints.add(entry.endpoint);
@@ -41,8 +41,8 @@ describe('Virtual Modules Property Tests', () => {
           if (totalHandlers === 0) return; // skip degenerate case
 
           // Set up registries
-          const registry = new Registry<BackendEntry>();
-          const wsRegistry = new Registry<WebSocketEntry>();
+          const registry = new Registry<ActionEntry>();
+          const wsRegistry = new Registry<WsEntry>();
 
           const allEndpoints: string[] = [];
           for (const entry of uniqueBackend) {
@@ -68,8 +68,8 @@ describe('Virtual Modules Property Tests', () => {
           const code = result!.code;
 
           // Build expected constant names
-          const expectedBackendConsts = uniqueBackend.map((e) => backendConstName(e.endpoint));
-          const expectedWsConsts = uniqueWs.map((e) => websocketConstName(e.endpoint));
+          const expectedBackendConsts = uniqueBackend.map((e) => actionConstName(e.endpoint));
+          const expectedWsConsts = uniqueWs.map((e) => wsConstName(e.endpoint));
           const allExpectedConsts = [...expectedBackendConsts, ...expectedWsConsts];
 
           // The export statement should contain exactly all N constant names
@@ -93,9 +93,9 @@ describe('Virtual Modules Property Tests', () => {
     // Feature: vite-plugin-quality-testing, Property 23: Virtual Module Per-Endpoint Re-Export Correctness
     // **Validates: Requirements 5.4**
     fc.assert(
-      fc.property(arbBackendEntry(), (entry) => {
-        // Set up a registry with the generated backend entry
-        const registry = new Registry<BackendEntry>();
+      fc.property(arbActionEntry(), (entry) => {
+        // Set up a registry with the generated action entry
+        const registry = new Registry<ActionEntry>();
         registry.set(entry.endpoint, entry);
         registry.registerFile(entry.file, [entry.endpoint]);
 
@@ -111,9 +111,9 @@ describe('Virtual Modules Property Tests', () => {
 
         const code = result!.code;
 
-        // The code should re-export the backendConstName as default
-        const constName = backendConstName(entry.endpoint);
-        const expectedFileModuleId = virtualBackendFileId(entry.file);
+        // The code should re-export the actionConstName as default
+        const constName = actionConstName(entry.endpoint);
+        const expectedFileModuleId = virtualActionFileId(entry.file);
 
         // Verify the re-export pattern: export { <constName> as default } from "<per-file module>";
         expect(code).toContain(`${constName} as default`);
@@ -131,26 +131,26 @@ describe('Virtual Modules Property Tests', () => {
     // **Validates: Requirements 5.5**
     fc.assert(
       fc.property(
-        arbBackendEntry(),
-        arbWebSocketEntry(),
-        (backendEntry, wsEntry) => {
+        arbActionEntry(),
+        arbWsEntry(),
+        (actionEntry, wsEntry) => {
           // Force same file and non-empty moduleDeclsJs
-          const sharedFile = backendEntry.file;
+          const sharedFile = actionEntry.file;
           wsEntry.file = sharedFile;
-          backendEntry.moduleDeclsJs = 'const shared = {};';
+          actionEntry.moduleDeclsJs = 'const shared = {};';
           wsEntry.moduleDeclsJs = 'const shared = {};';
 
           // Make sure endpoints are different
-          if (backendEntry.endpoint === wsEntry.endpoint) {
+          if (actionEntry.endpoint === wsEntry.endpoint) {
             wsEntry.endpoint = wsEntry.endpoint + '/ws';
           }
 
           // Set up registries
-          const registry = new Registry<BackendEntry>();
-          const wsRegistry = new Registry<WebSocketEntry>();
+          const registry = new Registry<ActionEntry>();
+          const wsRegistry = new Registry<WsEntry>();
 
-          registry.set(backendEntry.endpoint, backendEntry);
-          registry.registerFile(sharedFile, [backendEntry.endpoint]);
+          registry.set(actionEntry.endpoint, actionEntry);
+          registry.registerFile(sharedFile, [actionEntry.endpoint]);
 
           wsRegistry.set(wsEntry.endpoint, wsEntry);
           wsRegistry.registerFile(sharedFile, [wsEntry.endpoint]);

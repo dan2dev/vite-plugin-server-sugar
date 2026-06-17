@@ -1,5 +1,5 @@
-// Demonstrates websocket(), sharing module-level state with a sibling
-// backend() handler from the same file (the connected sockets / history
+// Demonstrates $ws(), sharing module-level state with a sibling
+// $action() handler from the same file (the connected sockets / history
 // below are a single shared instance across both handler kinds).
 
 // Client -> server: what a connected client sends over the wire.
@@ -9,7 +9,7 @@ interface ChatMessage {
 }
 
 // Server -> client: what every connection receives, including broadcasts
-// from the sibling getChatHistory() backend() handler below.
+// from the sibling getChatHistory() $action() handler below.
 interface ChatBroadcast {
   message: string;
   name: string;
@@ -20,7 +20,7 @@ type ChatSocket = ServerWebSocket<ChatBroadcast>;
 const connections = new Set<ChatSocket>();
 const history: string[] = [];
 
-export const getChatHistory = backend(async () => {
+export const getChatHistory = $action(async () => {
   chat.send({
     message: "[testing] someone requested chat history",
     name: "server",
@@ -31,7 +31,7 @@ export const getChatHistory = backend(async () => {
   return history;
 });
 
-export const chat = websocket({
+export const chat = $ws({
   onOpen(ws: ChatSocket) {
     connections.add(ws);
   },

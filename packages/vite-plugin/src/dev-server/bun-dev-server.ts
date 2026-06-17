@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Registry } from '../core/registry';
-import type { BackendEntry } from '../types';
+import type { ActionEntry } from '../types';
 import { renderRuntimeImport } from './virtual-modules';
 import { API_PREFIX } from '../constants';
 import { hasRequestBody, headersFromNode, readNodeBody, requestUrl, writeWebResponse } from './middleware';
@@ -20,7 +20,7 @@ export class BunDevServer {
     cacheDir: string,
   ) {
     mkdirSync(cacheDir, { recursive: true });
-    this.scriptPath = join(cacheDir, 'backend-dev-server.ts');
+    this.scriptPath = join(cacheDir, 'action-dev-server.ts');
   }
 
   private generateScript(registry: Registry): string {
@@ -32,7 +32,7 @@ export class BunDevServer {
 
     // Group entries by source file so module-level declarations (e.g. `const
     // state = {}`) are shared across all handlers from the same file.
-    const entriesByFile = new Map<string, BackendEntry[]>();
+    const entriesByFile = new Map<string, ActionEntry[]>();
     for (const entry of registry.values()) {
       const arr = entriesByFile.get(entry.file) ?? [];
       arr.push(entry);

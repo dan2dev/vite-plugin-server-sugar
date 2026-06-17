@@ -6,19 +6,19 @@ import {
   RESOLVED_WS_PREFIX,
 } from "../constants";
 
-function virtualBackendId(endpoint: string): string {
+function virtualActionId(endpoint: string): string {
   return RESOLVED_PREFIX + endpoint;
 }
 
-function virtualWebsocketId(endpoint: string): string {
+function virtualWsId(endpoint: string): string {
   return RESOLVED_WS_PREFIX + endpoint;
 }
 
-function virtualBackendFileId(file: string): string {
+function virtualActionFileId(file: string): string {
   return RESOLVED_FILE_PREFIX + encodeURIComponent(file);
 }
 
-function invalidateBackendModulesInGraph<TModule>(
+function invalidateActionModulesInGraph<TModule>(
   graph: InvalidationGraph<TModule> | undefined,
   endpoints: string[],
   timestamp: number,
@@ -27,14 +27,14 @@ function invalidateBackendModulesInGraph<TModule>(
 
   const seen = new Set<TModule>();
   for (const endpoint of endpoints) {
-    const mod = graph.getModuleById(virtualBackendId(endpoint));
+    const mod = graph.getModuleById(virtualActionId(endpoint));
     if (mod) {
       graph.invalidateModule(mod, seen, timestamp, true);
     }
   }
 }
 
-function invalidateBackendFileModulesInGraph<TModule>(
+function invalidateActionFileModulesInGraph<TModule>(
   graph: InvalidationGraph<TModule> | undefined,
   files: string[],
   timestamp: number,
@@ -43,7 +43,7 @@ function invalidateBackendFileModulesInGraph<TModule>(
 
   const seen = new Set<TModule>();
   for (const file of files) {
-    const mod = graph.getModuleById(virtualBackendFileId(file));
+    const mod = graph.getModuleById(virtualActionFileId(file));
     if (mod) {
       graph.invalidateModule(mod, seen, timestamp, true);
     }
@@ -64,7 +64,7 @@ function moduleGraphs(server: ViteDevServer): InvalidationGraph<unknown>[] {
     : [mixedGraph];
 }
 
-export function invalidateBackendModules(
+export function invalidateActionModules(
   server: ViteDevServer,
   endpoints: Iterable<string>,
 ): void {
@@ -73,11 +73,11 @@ export function invalidateBackendModules(
 
   const timestamp = Date.now();
   for (const graph of moduleGraphs(server)) {
-    invalidateBackendModulesInGraph(graph, uniqueEndpoints, timestamp);
+    invalidateActionModulesInGraph(graph, uniqueEndpoints, timestamp);
   }
 }
 
-function invalidateWebsocketModulesInGraph<TModule>(
+function invalidateWsModulesInGraph<TModule>(
   graph: InvalidationGraph<TModule> | undefined,
   endpoints: string[],
   timestamp: number,
@@ -86,14 +86,14 @@ function invalidateWebsocketModulesInGraph<TModule>(
 
   const seen = new Set<TModule>();
   for (const endpoint of endpoints) {
-    const mod = graph.getModuleById(virtualWebsocketId(endpoint));
+    const mod = graph.getModuleById(virtualWsId(endpoint));
     if (mod) {
       graph.invalidateModule(mod, seen, timestamp, true);
     }
   }
 }
 
-export function invalidateWebsocketModules(
+export function invalidateWsModules(
   server: ViteDevServer,
   endpoints: Iterable<string>,
 ): void {
@@ -102,11 +102,11 @@ export function invalidateWebsocketModules(
 
   const timestamp = Date.now();
   for (const graph of moduleGraphs(server)) {
-    invalidateWebsocketModulesInGraph(graph, uniqueEndpoints, timestamp);
+    invalidateWsModulesInGraph(graph, uniqueEndpoints, timestamp);
   }
 }
 
-export function invalidateBackendFileModules(
+export function invalidateActionFileModules(
   server: ViteDevServer,
   files: Iterable<string>,
 ): void {
@@ -115,6 +115,6 @@ export function invalidateBackendFileModules(
 
   const timestamp = Date.now();
   for (const graph of moduleGraphs(server)) {
-    invalidateBackendFileModulesInGraph(graph, uniqueFiles, timestamp);
+    invalidateActionFileModulesInGraph(graph, uniqueFiles, timestamp);
   }
 }

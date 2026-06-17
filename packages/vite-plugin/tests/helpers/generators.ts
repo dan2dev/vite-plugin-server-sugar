@@ -1,5 +1,5 @@
 import * as fc from 'fast-check';
-import type { BackendEntry, WebSocketEntry, RuntimeImport } from '../../src/types';
+import type { ActionEntry, WsEntry, RuntimeImport } from '../../src/types';
 
 export { fc };
 
@@ -92,9 +92,9 @@ function arbRuntimeImport(): fc.Arbitrary<RuntimeImport> {
 }
 
 /**
- * Generates BackendEntry instances with realistic fields.
+ * Generates ActionEntry instances with realistic fields.
  */
-export function arbBackendEntry(): fc.Arbitrary<BackendEntry> {
+export function arbActionEntry(): fc.Arbitrary<ActionEntry> {
   return fc.record({
     endpoint: arbEndpointName(),
     imports: fc.array(arbRuntimeImport(), { minLength: 0, maxLength: 3 }),
@@ -125,9 +125,9 @@ export function arbBackendEntry(): fc.Arbitrary<BackendEntry> {
 }
 
 /**
- * Generates WebSocketEntry instances with realistic fields.
+ * Generates WsEntry instances with realistic fields.
  */
-export function arbWebSocketEntry(): fc.Arbitrary<WebSocketEntry> {
+export function arbWsEntry(): fc.Arbitrary<WsEntry> {
   return fc.record({
     endpoint: arbEndpointName(),
     imports: fc.array(arbRuntimeImport(), { minLength: 0, maxLength: 3 }),
@@ -211,30 +211,30 @@ export function arbRegistryOps(): fc.Arbitrary<RegistryOp[]> {
 }
 
 /**
- * Generates TypeScript source code containing backend()/websocket() calls.
+ * Generates TypeScript source code containing $action()/$ws() calls.
  */
 export function arbTsSource(): fc.Arbitrary<string> {
   const importLine = arbIdentifierName().map(
     (name) => `import { ${name} } from './${name}';`,
   );
 
-  const backendCall = fc
+  const actionCall = fc
     .tuple(arbIdentifierName(), arbIdentifierName())
     .map(
       ([varName, param]) =>
-        `const ${varName} = backend((${param}: string) => { return ${param}.toUpperCase(); });`,
+        `const ${varName} = $action((${param}: string) => { return ${param}.toUpperCase(); });`,
     );
 
-  const websocketCall = arbIdentifierName().map(
+  const wsCall = arbIdentifierName().map(
     (varName) =>
-      `const ${varName} = websocket({ onMessage(ws, data) { ws.send(data); } });`,
+      `const ${varName} = $ws({ onMessage(ws, data) { ws.send(data); } });`,
   );
 
   return fc
     .tuple(
       fc.array(importLine, { minLength: 0, maxLength: 3 }),
       fc.array(
-        fc.oneof(backendCall, websocketCall),
+        fc.oneof(actionCall, wsCall),
         { minLength: 1, maxLength: 4 },
       ),
     )

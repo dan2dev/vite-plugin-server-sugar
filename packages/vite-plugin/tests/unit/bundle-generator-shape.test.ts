@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
-import type { BackendEntry, WebSocketEntry } from '../../src/types';
+import type { ActionEntry, WsEntry } from '../../src/types';
 
 /**
  * Unit tests for Bundle Generator structural shape.
@@ -36,7 +36,7 @@ describe('Bundle Generator Structural Shape', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  function makeBackendEntry(endpoint: string, file: string): BackendEntry {
+  function makeActionEntry(endpoint: string, file: string): ActionEntry {
     return {
       endpoint,
       imports: [],
@@ -45,7 +45,7 @@ describe('Bundle Generator Structural Shape', () => {
     };
   }
 
-  function makeWsEntry(endpoint: string, file: string): WebSocketEntry {
+  function makeWsEntry(endpoint: string, file: string): WsEntry {
     return {
       endpoint,
       imports: [],
@@ -54,9 +54,9 @@ describe('Bundle Generator Structural Shape', () => {
     };
   }
 
-  function generateWithBackendEntry(): string {
-    const registry = new Registry<BackendEntry>();
-    const entry = makeBackendEntry('my-endpoint', join(tempDir, 'src', 'handlers.ts'));
+  function generateWithActionEntry(): string {
+    const registry = new Registry<ActionEntry>();
+    const entry = makeActionEntry('my-endpoint', join(tempDir, 'src', 'handlers.ts'));
     registry.set('my-endpoint', entry);
     registry.registerFile(entry.file, ['my-endpoint']);
 
@@ -73,7 +73,7 @@ describe('Bundle Generator Structural Shape', () => {
   }
 
   function generateWithServerEntryOnly(): string {
-    const registry = new Registry<BackendEntry>();
+    const registry = new Registry<ActionEntry>();
 
     const result = generateBundleContent(
       registry,
@@ -87,9 +87,9 @@ describe('Bundle Generator Structural Shape', () => {
     return result!;
   }
 
-  function generateWithWebSocketEntry(): string {
-    const registry = new Registry<BackendEntry>();
-    const wsRegistry = new Registry<WebSocketEntry>();
+  function generateWithWsEntry(): string {
+    const registry = new Registry<ActionEntry>();
+    const wsRegistry = new Registry<WsEntry>();
     const wsEntry = makeWsEntry('chat', join(tempDir, 'src', 'chat.ts'));
     wsRegistry.set('chat', wsEntry);
     wsRegistry.registerFile(wsEntry.file, ['chat']);
@@ -108,15 +108,15 @@ describe('Bundle Generator Structural Shape', () => {
   }
 
   describe('Requirement 14.1: Exactly one Bun.serve({...}) call', () => {
-    it('output contains exactly one Bun.serve( occurrence with backend entries only', () => {
-      const output = generateWithBackendEntry();
+    it('output contains exactly one Bun.serve( occurrence with action entries only', () => {
+      const output = generateWithActionEntry();
       const matches = output.match(/Bun\.serve\(/g);
       expect(matches).not.toBeNull();
       expect(matches!.length).toBe(1);
     });
 
-    it('output contains exactly one Bun.serve( occurrence with websocket entries', () => {
-      const output = generateWithWebSocketEntry();
+    it('output contains exactly one Bun.serve( occurrence with ws entries', () => {
+      const output = generateWithWsEntry();
       const matches = output.match(/Bun\.serve\(/g);
       expect(matches).not.toBeNull();
       expect(matches!.length).toBe(1);
@@ -132,104 +132,104 @@ describe('Bundle Generator Structural Shape', () => {
 
   describe('Requirement 14.2: Static asset middleware with Cache-Control headers', () => {
     it('output contains Cache-Control header for asset files', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('Cache-Control');
     });
 
     it('output sets immutable cache for assets in /assets/ path', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('public, max-age=31536000, immutable');
     });
 
     it('output sets must-revalidate cache for non-asset files', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('public, max-age=0, must-revalidate');
     });
 
     it('output checks if pathname includes /assets/ for cache strategy', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('/assets/');
     });
   });
 
   describe('Requirement 14.3: SPA fallback route for unmatched GET requests', () => {
     it('output contains SPA fallback serving index.html', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('index.html');
     });
 
     it('output has a GET catch-all route for SPA fallback', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       // The SPA fallback uses app.get("*", ...)
       expect(output).toContain('app.get("*"');
     });
 
     it('output serves index.html with text/html content type', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('text/html; charset=utf-8');
     });
   });
 
   describe('Requirement 14.4: serverEntry import validates .fetch() export', () => {
     it('output validates that server entry exports a fetch function', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain("typeof app.fetch !== 'function'");
     });
 
     it('output throws descriptive error when fetch export is missing', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('must export a Hono app');
     });
 
     it('output imports server entry as namespace', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain("import * as __serverEntry from");
     });
 
     it('output extracts default or named app export from server entry', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('__serverEntry.default ?? __serverEntry.app');
     });
   });
 
   describe('Requirement 14.5: 405 handler for non-POST to /__server-build/*', () => {
     it('output contains a 405 Method not allowed handler', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain('405');
       expect(output).toContain('Method not allowed');
     });
 
     it('output uses app.all to catch non-POST methods on the API prefix', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain("app.all('/__server-build/");
     });
 
     it('output includes Allow: POST header in the 405 response', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       expect(output).toContain("Allow: 'POST'");
     });
   });
 
   describe('Requirement 14.6: (req) => app.fetch(req) binding pattern', () => {
-    it('output uses (req) => app.fetch(req) in Bun.serve without websockets', () => {
-      const output = generateWithBackendEntry();
+    it('output uses (req) => app.fetch(req) in Bun.serve without wss', () => {
+      const output = generateWithActionEntry();
       expect(output).toContain('(req) => app.fetch(req)');
     });
 
     it('output does NOT use bare app.fetch reference (unsafe this context)', () => {
-      const output = generateWithBackendEntry();
+      const output = generateWithActionEntry();
       // The unsafe pattern would be: fetch: app.fetch,
       expect(output).not.toContain('fetch: app.fetch,');
     });
 
-    it('output uses app.fetch(req) in websocket fetch handler', () => {
-      const output = generateWithWebSocketEntry();
-      // With websockets, the fetch handler calls app.fetch(req) for non-WS requests
+    it('output uses app.fetch(req) in ws fetch handler', () => {
+      const output = generateWithWsEntry();
+      // With wss, the fetch handler calls app.fetch(req) for non-WS requests
       expect(output).toContain('return app.fetch(req)');
     });
 
-    it('output does NOT use bare app.fetch as function value with websockets', () => {
-      const output = generateWithWebSocketEntry();
+    it('output does NOT use bare app.fetch as function value with wss', () => {
+      const output = generateWithWsEntry();
       expect(output).not.toContain('fetch: app.fetch,');
     });
   });

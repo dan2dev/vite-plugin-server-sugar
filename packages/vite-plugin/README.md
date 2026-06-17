@@ -1,6 +1,6 @@
 # vite-plugin-server-build
 
-A Vite plugin that turns `backend()` and `websocket()` calls written inline in
+A Vite plugin that turns `$action()` and `$ws()` calls written inline in
 your frontend source into type-safe server endpoints. In the browser bundle the
 calls become `fetch()` or `WebSocket` clients; on the server the original
 functions and handlers run inside a generated Bun + Hono application.
@@ -9,11 +9,11 @@ functions and handlers run inside a generated Bun + Hono application.
 // src/todos.ts
 import { db } from "./db";
 
-export const getTodos = backend(async () => {
+export const getTodos = action(async () => {
   return db.query("SELECT * FROM todos").all();
 });
 
-export const addTodo = backend(async (text: string) => {
+export const addTodo = action(async (text: string) => {
   return db.query("INSERT INTO todos (text) VALUES (?) RETURNING *").get(text);
 });
 ```
@@ -31,7 +31,7 @@ remain normal TypeScript values with inferred argument and return types on both
 sides of the wire, while server-only imports used only inside handlers are
 removed from the browser output.
 
-`websocket()` follows the same model for persistent connections:
+`$ws()` follows the same model for persistent connections:
 
 ```ts
 // src/chat.ts
@@ -39,13 +39,13 @@ type ChatMessage = { text: string };
 
 const history: ChatMessage[] = [];
 
-export const getHistory = backend(async () => history);
+export const getHistory = action(async () => history);
 
-export const chat = websocket({
-  onOpen(ws: ServerWebSocket<ChatMessage>) {
+export const chat = ws({
+  onOpen(ws: ServerWs<ChatMessage>) {
     ws.send({ text: "connected" });
   },
-  onMessage(ws: ServerWebSocket<ChatMessage>, data: ChatMessage) {
+  onMessage(ws: ServerWs<ChatMessage>, data: ChatMessage) {
     history.push(data);
     chat.send(data);
   },
@@ -97,15 +97,15 @@ export default defineConfig({
 
 **`tsconfig.json`**
 
-Register the ambient macro types so TypeScript recognizes `backend()` and
-`websocket()` without imports:
+Register the ambient macro types so TypeScript recognizes `$action()` and
+`$ws()` without imports:
 
 ```json
 {
   "compilerOptions": {
     "types": [
-      "vite-plugin-server-build/backend",
-      "vite-plugin-server-build/websocket"
+      "vite-plugin-server-build/action",
+      "vite-plugin-server-build/ws"
     ]
   }
 }
@@ -135,20 +135,20 @@ export default app;
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `port` | `number` | `3001` | Dev-server port default and generated production server fallback port. Production can override it with the `PORT` environment variable. |
-| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. Its routes and middleware are layered with generated backend routes. |
+| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. Its routes and middleware are layered with generated action routes. |
 | `compile` | `boolean` | `false` | After emitting `dist/server/server.mjs`, also compile standalone Bun executables for every supported Bun target. Requires Bun runtime support or the `bun` CLI on `PATH`. |
 
 ## Programming Model
 
-`backend()` and `websocket()` are compile-time macros, not runtime functions.
-Their declarations in `backend.d.ts` and `websocket.d.ts` exist only for type
+`$action()` and `$ws()` are compile-time macros, not runtime functions.
+Their declarations in `action.d.ts` and `ws.d.ts` exist only for type
 checking.
 
 During Vite transforms:
 
-- `backend(fn)` is replaced in client code with an async function that posts
+- `action(fn)` is replaced in client code with an async function that posts
   JSON to `/__server-build/<endpoint>`.
-- `websocket(handlers)` is replaced in client code with an object containing
+- `ws(handlers)` is replaced in client code with an object containing
   `connect(...args)`, which opens `ws://` or `wss://` to
   `/__server-build-ws/<endpoint>`.
 - The original server function/handler source is recorded in an internal
@@ -170,10 +170,10 @@ src/admin/users.ts + deleteUser -> admin/users/delete-user
 Labels usually come from the assigned variable or object property name:
 
 ```ts
-export const getUser = backend(async () => {});
+export const getUser = action(async () => {});
 
 export const api = {
-  saveUser: backend(async () => {}),
+  saveUser: action(async () => {}),
 };
 ```
 
@@ -182,7 +182,7 @@ Duplicate endpoint names in the same file get a line/column suffix.
 
 ## Request Contract
 
-Generated `backend()` endpoints use this HTTP contract:
+Generated `$action()` endpoints use this HTTP contract:
 
 - Method: `POST`.
 - Path: `/__server-build/<endpoint>`.
@@ -205,10 +205,10 @@ schema validation; TypeScript inference is compile-time only.
 
 ## WebSocket Contract
 
-`websocket()` supports `onOpen`, `onMessage`, and `onClose` handlers.
+`$ws()` supports `onOpen`, `onMessage`, and `onClose` handlers.
 
 ```ts
-export const chat = websocket<
+export const chat = ws<
   { text: string },
   { text: string; from: string },
   [roomId: string]
@@ -224,37 +224,37 @@ export const chat = websocket<
 
 On the client:
 
-- `chat.connect(...args)` serializes the connect args into the websocket URL.
+- `chat.connect(...args)` serializes the connect args into the ws URL.
 - `conn.send(data)` JSON-stringifies outgoing messages.
 - `conn.onMessage(cb)` receives JSON-parsed messages, falling back to raw data
   if parsing fails.
 - `conn.onClose(cb)`, `conn.close(...)`, and `conn.readyState` mirror the
-  underlying browser websocket.
+  underlying browser ws.
 
 On the server:
 
 - `ws.args` contains the args passed to `connect(...args)`.
 - `ws.send(data)` JSON-stringifies data before sending it to that client.
-- The object returned by `websocket()` also has `send(data)`, which broadcasts
+- The object returned by `$ws()` also has `send(data)`, which broadcasts
   to all currently open sockets for that endpoint. This is meant to be called
-  from sibling `backend()` or `websocket()` handlers in the same file.
+  from sibling `$action()` or `$ws()` handlers in the same file.
 
 ## Shared Module State
 
 Top-level declarations used by handlers are captured into a shared per-file
 server scope. That means state declared next to handlers is shared across
-requests and across sibling `backend()` and `websocket()` handlers from the
+requests and across sibling `$action()` and `$ws()` handlers from the
 same file in both dev and production.
 
 ```ts
 const countByUser = new Map<string, number>();
 
-export const increment = backend(async (userId: string) => {
+export const increment = action(async (userId: string) => {
   countByUser.set(userId, (countByUser.get(userId) ?? 0) + 1);
   return countByUser.get(userId);
 });
 
-export const reset = backend(async (userId: string) => {
+export const reset = action(async (userId: string) => {
   countByUser.delete(userId);
 });
 ```
@@ -283,13 +283,13 @@ Backend HTTP requests in dev are served through the Vite dev server:
 - Without `serverEntry`, plugin middleware handles `/__server-build/*`
   directly.
 - With `serverEntry`, the configured Hono app is loaded through
-  `server.ssrLoadModule()`, augmented once with generated backend routes, and
+  `server.ssrLoadModule()`, augmented once with generated action routes, and
   called via `app.fetch()`. This lets user middleware run for generated
-  backend routes, matching production behavior. Non-API `404` responses fall
+  action routes, matching production behavior. Non-API `404` responses fall
   through to Vite's normal middleware.
 
 WebSocket upgrades in dev hook the Vite HTTP server's `upgrade` event and use
-the `ws` package in `noServer` mode. The websocket handler module and upgrade
+the `ws` package in `noServer` mode. The $ws handler module and upgrade
 handler share open-connection state through a fixed `globalThis` key so
 `chat.send(...)` broadcasts correctly during dev SSR.
 
@@ -309,7 +309,7 @@ Then the plugin's `writeBundle` hook generates and bundles the server:
 
 The generated production server:
 
-- Registers `POST /__server-build/*` for generated backend calls.
+- Registers `POST /__server-build/*` for generated $action calls.
 - Registers `app.all('/__server-build/*')` to reject non-POST API calls.
 - Uses the configured Hono app when `serverEntry` is present, otherwise creates
   a bare `new Hono()`.
@@ -319,8 +319,8 @@ The generated production server:
 - Prevents directory traversal before reading static files.
 - Falls back to `index.html` for unmatched GET requests, making SPA routing
   work from the same server process.
-- Uses `Bun.serve`. When websocket handlers exist, the same `Bun.serve` call
-  also performs websocket upgrades and dispatches `open`, `message`, and
+- Uses `Bun.serve`. When $ws handlers exist, the same `Bun.serve` call
+  also performs ws upgrades and dispatches `open`, `message`, and
   `close` events to the generated handlers.
 - Reads `PORT` from `Bun.env.PORT`; invalid or missing values fall back to the
   configured `port`.
@@ -372,7 +372,7 @@ src/index.ts
   Vite plugin entry point and lifecycle hooks.
 
 src/core/processor.ts
-  TypeScript AST transform. Finds backend()/websocket(), derives endpoints,
+  TypeScript AST transform. Finds $action()/$ws(), derives endpoints,
   collects imports and shared declarations, rewrites client code, and fills
   the registries.
 
@@ -385,10 +385,10 @@ src/dev-server/virtual-modules.ts
 
 src/dev-server/middleware.ts
   Converts Node requests/responses to Web Request/Response objects and handles
-  generated backend requests in dev.
+  generated action requests in dev.
 
 src/dev-server/ws-upgrade.ts
-  Handles dev websocket upgrades with the ws package.
+  Handles dev ws upgrades with the ws package.
 
 src/dev-server/hmr.ts
   Invalidates Vite module graph entries for changed endpoint modules.

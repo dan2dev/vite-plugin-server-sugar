@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as fc from 'fast-check';
 import type { ViteDevServer } from 'vite';
-import { invalidateBackendModules, invalidateWebsocketModules } from '../../src/dev-server/hmr';
+import { invalidateActionModules, invalidateWsModules } from '../../src/dev-server/hmr';
 import { RESOLVED_PREFIX, RESOLVED_WS_PREFIX } from '../../src/constants';
 
 /**
@@ -105,7 +105,7 @@ describe('HMR Property Tests', () => {
      * **Validates: Requirements 11.1, 11.2, 11.5**
      *
      * For any set of previous endpoints and new endpoints for a file change,
-     * invalidateBackendModules and invalidateWebsocketModules SHALL be called
+     * invalidateActionModules and invalidateWsModules SHALL be called
      * with the union of both sets, and SHALL operate on both the SSR module graph
      * and the mixed module graph when both exist.
      */
@@ -117,28 +117,28 @@ describe('HMR Property Tests', () => {
           // Compute the union of previous and new endpoints
           const union = [...new Set([...previousEndpoints, ...newEndpoints])];
 
-          // --- Test backend invalidation ---
-          const backendVirtualIds = union.map((ep) => RESOLVED_PREFIX + ep);
+          // --- Test action invalidation ---
+          const actionVirtualIds = union.map((ep) => RESOLVED_PREFIX + ep);
           const {
-            server: backendServer,
-            mixedInvalidatedIds: backendMixedIds,
-            ssrInvalidatedIds: backendSsrIds,
-          } = createDualGraphMockServer(backendVirtualIds);
+            server: actionServer,
+            mixedInvalidatedIds: actionMixedIds,
+            ssrInvalidatedIds: actionSsrIds,
+          } = createDualGraphMockServer(actionVirtualIds);
 
-          // Call invalidateBackendModules with the union (simulating what HMR does on file change)
-          invalidateBackendModules(backendServer, union);
+          // Call invalidateActionModules with the union (simulating what HMR does on file change)
+          invalidateActionModules(actionServer, union);
 
           // All union endpoints should be invalidated in both graphs
-          expect(backendMixedIds.length).toBe(union.length);
-          expect(backendSsrIds.length).toBe(union.length);
+          expect(actionMixedIds.length).toBe(union.length);
+          expect(actionSsrIds.length).toBe(union.length);
 
           for (const ep of union) {
             const expectedId = RESOLVED_PREFIX + ep;
-            expect(backendMixedIds).toContain(expectedId);
-            expect(backendSsrIds).toContain(expectedId);
+            expect(actionMixedIds).toContain(expectedId);
+            expect(actionSsrIds).toContain(expectedId);
           }
 
-          // --- Test websocket invalidation ---
+          // --- Test ws invalidation ---
           const wsVirtualIds = union.map((ep) => RESOLVED_WS_PREFIX + ep);
           const {
             server: wsServer,
@@ -146,8 +146,8 @@ describe('HMR Property Tests', () => {
             ssrInvalidatedIds: wsSsrIds,
           } = createDualGraphMockServer(wsVirtualIds);
 
-          // Call invalidateWebsocketModules with the union
-          invalidateWebsocketModules(wsServer, union);
+          // Call invalidateWsModules with the union
+          invalidateWsModules(wsServer, union);
 
           // All union endpoints should be invalidated in both graphs
           expect(wsMixedIds.length).toBe(union.length);
@@ -176,7 +176,7 @@ describe('HMR Property Tests', () => {
     fc.assert(
       fc.property(arbEndpointSet(), (endpoints) => {
         // The file was previously registered with these endpoints.
-        // When the file is deleted, we call invalidateBackendModules with all those endpoints.
+        // When the file is deleted, we call invalidateActionModules with all those endpoints.
         // All corresponding virtual modules should be invalidated.
 
         // Compute the expected virtual module IDs for these endpoints
@@ -188,7 +188,7 @@ describe('HMR Property Tests', () => {
         const { server, invalidatedIds } = createMockServer(expectedVirtualIds);
 
         // Simulate file deletion: invalidate all endpoints the file was registered with
-        invalidateBackendModules(server, endpoints);
+        invalidateActionModules(server, endpoints);
 
         // ALL virtual modules corresponding to those endpoints must be invalidated
         expect(invalidatedIds.length).toBe(endpoints.length);

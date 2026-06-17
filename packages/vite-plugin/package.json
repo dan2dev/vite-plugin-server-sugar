@@ -1,7 +1,7 @@
 {
   "name": "vite-plugin-server-build",
   "version": "0.1.0",
-  "description": "Vite plugin that turns backend() calls into type-safe API endpoints bundled with Bun.",
+  "description": "Vite plugin that turns $action() calls into type-safe API endpoints bundled with Bun.",
   "author": "Danilo Castro <duocraft.tech@gmail.com>",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,7 @@
     "vite",
     "bun",
     "server-functions",
-    "backend",
+    "action",
     "fullstack"
   ],
   "homepage": "https://github.com/dan2dev/vite-plugin-server-build#readme",
@@ -26,21 +26,21 @@
       "import": "./dist/index.mjs",
       "types": "./dist/index.d.mts"
     },
-    "./backend": {
-      "types": "./backend.d.ts"
+    "./action": {
+      "types": "./action.d.ts"
     },
-    "./websocket": {
-      "types": "./websocket.d.ts"
+    "./ws": {
+      "types": "./ws.d.ts"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
-    "backend.d.ts",
-    "websocket.d.ts"
+    "action.d.ts",
+    "ws.d.ts"
   ],
   "scripts": {
-    "build": "tsdown && cp backend.d.ts dist/backend.d.ts && cp websocket.d.ts dist/websocket.d.ts",
+    "build": "tsdown && cp action.d.ts dist/action.d.ts && cp ws.d.ts dist/ws.d.ts",
     "build:watch": "tsdown --watch",
     "dev": "tsdown --watch",
     "test": "vitest --run",

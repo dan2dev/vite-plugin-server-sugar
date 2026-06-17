@@ -13,12 +13,12 @@ export function toKebabCase(str: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export function backendConstName(endpoint: string): string {
+export function actionConstName(endpoint: string): string {
   const safe = endpoint.replace(/[^A-Za-z0-9_$]/g, '_');
-  return `__backend_${safe}_${hash(endpoint)}`;
+  return `__action_${safe}_${hash(endpoint)}`;
 }
 
-export function websocketConstName(endpoint: string): string {
+export function wsConstName(endpoint: string): string {
   const safe = endpoint.replace(/[^A-Za-z0-9_$]/g, '_');
   return `__ws_${safe}_${hash(endpoint)}`;
 }

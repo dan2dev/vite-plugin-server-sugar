@@ -3,7 +3,7 @@ import { relative } from "node:path";
 import { RolldownMagicString } from "rolldown";
 import { Registry } from "./registry";
 import { transpileTs, transpileStatements } from "./transpiler";
-import type { BackendEntry, RuntimeImport, WebSocketEntry } from "../types";
+import type { ActionEntry, RuntimeImport, WsEntry } from "../types";
 import {
   API_PREFIX,
   CLIENT_FETCH_EXPORT,
@@ -141,12 +141,12 @@ function isValidWebsocketHandlersArg(arg: ts.Node): arg is ts.ObjectLiteralExpre
 }
 
 export interface ProcessorOptions {
-  registry: Registry<BackendEntry>;
-  /** Registry for `websocket()` handlers. Optional for callers that only care about backend(). */
-  wsRegistry?: Registry<WebSocketEntry>;
+  registry: Registry<ActionEntry>;
+  /** Registry for `$ws()` handlers. Optional for callers that only care about $action(). */
+  wsRegistry?: Registry<WsEntry>;
   root: string;
   /**
-   * When true, emit a console warning for `backend()`/`websocket()` bodies
+   * When true, emit a console warning for `$action()`/`$ws()` bodies
    * that reference values they will not receive on the server (not imports,
    * parameters, locals, or known globals).
    */
@@ -164,9 +164,9 @@ export function processFile(
   options: ProcessorOptions,
 ): ProcessResult | null {
   const { registry, root } = options;
-  const wsRegistry = options.wsRegistry ?? new Registry<WebSocketEntry>();
+  const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
 
-  if (!/\b(?:backend|websocket)\s*\(/.test(code)) {
+  if (!/(?:\$action|\$ws)\s*\(/.test(code)) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
     return null;
@@ -175,8 +175,8 @@ export function processFile(
   const sf = ts.createSourceFile(id, code, ts.ScriptTarget.Latest, true);
   const replacements: Array<{ start: number; end: number; text: string }> = [];
   const helperImports: string[] = [];
-  const entries: BackendEntry[] = [];
-  const wsEntries: WebSocketEntry[] = [];
+  const entries: ActionEntry[] = [];
+  const wsEntries: WsEntry[] = [];
   const usedEndpoints = new Set<string>();
 
   function uniqueLocalName(base: string): string {
@@ -193,9 +193,9 @@ export function processFile(
   }
 
   const clientFetchHelperName = uniqueLocalName(CLIENT_FETCH_EXPORT);
-  const clientArgsName = uniqueLocalName("__backendArgs");
+  const clientArgsName = uniqueLocalName("__actionArgs");
   const clientWsConnectHelperName = uniqueLocalName(CLIENT_WS_CONNECT_EXPORT);
-  const clientWsArgsName = uniqueLocalName("__websocketArgs");
+  const clientWsArgsName = uniqueLocalName("__wsArgs");
 
   function endpointName(file: string, name: string): string {
     let rel = normalizePath(relative(root, file));
@@ -268,7 +268,7 @@ export function processFile(
   function uniqueEndpoint(
     label: string,
     call: ts.CallExpression,
-    kind: "backend" | "websocket",
+    kind: "action" | "ws",
   ): string {
     const endpoint = endpointName(id, label);
     if (!usedEndpoints.has(endpoint)) {
@@ -300,7 +300,7 @@ export function processFile(
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "backend"
+      node.expression.text === "$action"
     ) {
       const call = node;
       const arg = node.arguments[0];
@@ -310,9 +310,9 @@ export function processFile(
       }
 
       const endpoint = uniqueEndpoint(
-        inferBackendLabel(call, sf, "backend"),
+        inferBackendLabel(call, sf, "$action"),
         call,
-        "backend",
+        "action",
       );
 
       const fnSource = code.slice(arg.getStart(sf), arg.getEnd());
@@ -326,7 +326,7 @@ export function processFile(
       // These are candidates for module-level capture via the IIFE.
       const bound = collectBoundNames(arg);
       for (const name of collectValueReferences(arg)) {
-        if (name === "backend") continue;
+        if (name === "$action") continue;
         if (
           bound.has(name) ||
           fileImportNames.has(name) ||
@@ -336,7 +336,7 @@ export function processFile(
         allHandlerFreeRefs.add(name);
       }
 
-      handlerNodes.set(endpoint, { node: arg, kind: "backend" });
+      handlerNodes.set(endpoint, { node: arg, kind: "action" });
 
       const fetchWrapper = [
         `async (...${clientArgsName}) => ${clientFetchHelperName}(`,
@@ -355,7 +355,7 @@ export function processFile(
     if (
       ts.isCallExpression(node) &&
       ts.isIdentifier(node.expression) &&
-      node.expression.text === "websocket"
+      node.expression.text === "$ws"
     ) {
       const call = node;
       const arg = node.arguments[0];
@@ -365,9 +365,9 @@ export function processFile(
       }
 
       const endpoint = uniqueEndpoint(
-        inferBackendLabel(call, sf, "websocket"),
+        inferBackendLabel(call, sf, "$ws"),
         call,
-        "websocket",
+        "ws",
       );
 
       const handlersSource = `(${code.slice(arg.getStart(sf), arg.getEnd())})`;
@@ -379,7 +379,7 @@ export function processFile(
 
       const bound = collectBoundNames(arg);
       for (const name of collectValueReferences(arg)) {
-        if (name === "websocket") continue;
+        if (name === "$ws") continue;
         if (
           bound.has(name) ||
           fileImportNames.has(name) ||
@@ -389,7 +389,7 @@ export function processFile(
         allHandlerFreeRefs.add(name);
       }
 
-      handlerNodes.set(endpoint, { node: arg, kind: "websocket" });
+      handlerNodes.set(endpoint, { node: arg, kind: "ws" });
 
       const connectWrapper = [
         `{ connect: (...${clientWsArgsName}) => ${clientWsConnectHelperName}(`,
@@ -440,7 +440,7 @@ export function processFile(
       if (
         ts.isCallExpression(n) &&
         ts.isIdentifier(n.expression) &&
-        (n.expression.text === "backend" || n.expression.text === "websocket")
+        (n.expression.text === "$action" || n.expression.text === "$ws")
       ) {
         found = true;
         return;
@@ -505,13 +505,13 @@ export function processFile(
   function warnOnUncapturedReferences(
     fn: ts.Node,
     endpoint: string,
-    kind: "backend" | "websocket",
+    kind: "action" | "ws",
     moduleLocalNames: Set<string>,
   ): void {
     const bound = collectBoundNames(fn);
     const free: string[] = [];
     for (const name of collectValueReferences(fn)) {
-      if (name === "backend" || name === "websocket") continue;
+      if (name === "$action" || name === "$ws") continue;
       if (
         bound.has(name) ||
         fileImportNames.has(name) ||
@@ -809,21 +809,21 @@ export function processFile(
     }
   }
 
-  // Remove the `declare const backend: ...;` / `declare function websocket: ...;` shims, if present.
-  const declareBackendMatch = /declare\s+const\s+backend\s*:[^;]*;/.exec(code);
-  if (declareBackendMatch) {
+  // Remove the `declare function $action: ...;` / `declare function $ws: ...;` shims, if present.
+  const declareActionMatch = /declare\s+function\s+\$action\s*[<(][^;]*;/.exec(code);
+  if (declareActionMatch) {
     replacements.push({
-      start: declareBackendMatch.index,
-      end: declareBackendMatch.index + declareBackendMatch[0].length,
+      start: declareActionMatch.index,
+      end: declareActionMatch.index + declareActionMatch[0].length,
       text: "",
     });
   }
-  const declareWebsocketMatch =
-    /declare\s+function\s+websocket\s*[<(][^;]*;/.exec(code);
-  if (declareWebsocketMatch) {
+  const declareWsMatch =
+    /declare\s+function\s+\$ws\s*[<(][^;]*;/.exec(code);
+  if (declareWsMatch) {
     replacements.push({
-      start: declareWebsocketMatch.index,
-      end: declareWebsocketMatch.index + declareWebsocketMatch[0].length,
+      start: declareWsMatch.index,
+      end: declareWsMatch.index + declareWsMatch[0].length,
       text: "",
     });
   }

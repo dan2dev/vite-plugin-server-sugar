@@ -3,16 +3,16 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
 
 import type { ServerBuildPluginOptions } from "./types";
-import type { BackendEntry, WebSocketEntry } from "./types";
+import type { ActionEntry, WsEntry } from "./types";
 import { Registry } from "./core/registry";
 import { processFile } from "./core/processor";
 import {
-  invalidateBackendFileModules,
-  invalidateBackendModules,
-  invalidateWebsocketModules,
+  invalidateActionFileModules,
+  invalidateActionModules,
+  invalidateWsModules,
 } from "./dev-server/hmr";
 import {
-  handleGeneratedBackendRequest,
+  handleGeneratedActionRequest,
   loadServerApp,
   nodeRequestToWeb,
   requestUrl,
@@ -42,8 +42,8 @@ export function serverBuildPlugin(
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
   const compile = options.compile === true;
-  const registry = new Registry<BackendEntry>();
-  const wsRegistry = new Registry<WebSocketEntry>();
+  const registry = new Registry<ActionEntry>();
+  const wsRegistry = new Registry<WsEntry>();
 
   let root = process.cwd();
   let distOutDir = resolve(root, "dist");
@@ -130,12 +130,12 @@ export function serverBuildPlugin(
       scanDir(root);
       if (registry.size > 0) {
         console.log(
-          `[server-build] Registered ${registry.size} backend endpoints.`,
+          `[server-build] Registered ${registry.size} $action endpoints.`,
         );
       }
       if (wsRegistry.size > 0) {
         console.log(
-          `[server-build] Registered ${wsRegistry.size} websocket endpoints.`,
+          `[server-build] Registered ${wsRegistry.size} $ws endpoints.`,
         );
       }
     },
@@ -157,7 +157,7 @@ export function serverBuildPlugin(
       }
       if (wsRegistry.size > 0) {
         console.log(
-          `[server-build] Dev server ready with ${wsRegistry.size} websocket endpoints.`,
+          `[server-build] Dev server ready with ${wsRegistry.size} $ws endpoints.`,
         );
       }
 
@@ -165,7 +165,7 @@ export function serverBuildPlugin(
 
       if (serverEntry) {
         // Track Hono app instances that have already been augmented with
-        // backend routes so we don't re-register on every request. When HMR
+        // action routes so we don't re-register on every request. When HMR
         // invalidates the server entry, a new app instance is created and
         // routes are re-registered automatically.
         const augmentedApps = new WeakSet<object>();
@@ -179,9 +179,9 @@ export function serverBuildPlugin(
             );
             if (!app) return next();
 
-            // Dynamically register backend routes on the user's Hono app so
+            // Dynamically register action routes on the user's Hono app so
             // that user-defined middleware (e.g. app.all("*", ...)) also runs
-            // for backend requests, matching the production build behaviour.
+            // for action requests, matching the production build behaviour.
             if (!augmentedApps.has(app as object)) {
               augmentedApps.add(app as object);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -201,7 +201,7 @@ export function serverBuildPlugin(
                 if (!registry.has(endpoint)) {
                   return c.json(
                     {
-                      error: `No backend handler registered: '${endpoint}'`,
+                      error: `No action handler registered: '${endpoint}'`,
                     },
                     404,
                   );
@@ -251,7 +251,7 @@ export function serverBuildPlugin(
             const pathname = new URL(webRequest.url).pathname;
             const response = await app.fetch(webRequest);
 
-            // For backend API paths the Hono app is the authority;
+            // For action API paths the Hono app is the authority;
             // always write its response (including 404s).  For other
             // paths, a 404 means Hono didn't handle the request so we
             // fall through to Vite's internal middleware (source files,
@@ -271,7 +271,7 @@ export function serverBuildPlugin(
           }
         });
       } else {
-        // No server entry: handle backend requests directly in middleware
+        // No server entry: handle action requests directly in middleware
         // (no user Hono app to route them through).
         server.middlewares.use(async (req, res, next) => {
           const pathname = requestUrl(req).pathname;
@@ -286,7 +286,7 @@ export function serverBuildPlugin(
             return;
           }
 
-          await handleGeneratedBackendRequest(
+          await handleGeneratedActionRequest(
             server,
             req,
             res,
@@ -308,21 +308,21 @@ export function serverBuildPlugin(
               root,
               emitWarnings: true,
             });
-            invalidateBackendModules(server, [
+            invalidateActionModules(server, [
               ...previousEndpoints,
               ...registry.getEndpointsForFile(file),
             ]);
-            invalidateWebsocketModules(server, [
+            invalidateWsModules(server, [
               ...previousWsEndpoints,
               ...wsRegistry.getEndpointsForFile(file),
             ]);
-            invalidateBackendFileModules(server, [file]);
+            invalidateActionFileModules(server, [file]);
           } catch {
             registry.unregisterFile(file);
             wsRegistry.unregisterFile(file);
-            invalidateBackendModules(server, previousEndpoints);
-            invalidateWebsocketModules(server, previousWsEndpoints);
-            invalidateBackendFileModules(server, [file]);
+            invalidateActionModules(server, previousEndpoints);
+            invalidateWsModules(server, previousWsEndpoints);
+            invalidateActionFileModules(server, [file]);
           }
         }
       });
@@ -332,9 +332,9 @@ export function serverBuildPlugin(
         const previousWsEndpoints = wsRegistry.getEndpointsForFile(file);
         registry.unregisterFile(file);
         wsRegistry.unregisterFile(file);
-        invalidateBackendModules(server, previousEndpoints);
-        invalidateWebsocketModules(server, previousWsEndpoints);
-        invalidateBackendFileModules(server, [file]);
+        invalidateActionModules(server, previousEndpoints);
+        invalidateWsModules(server, previousWsEndpoints);
+        invalidateActionFileModules(server, [file]);
       });
     },
 

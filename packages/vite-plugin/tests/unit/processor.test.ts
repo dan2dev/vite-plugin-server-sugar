@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
-import type { BackendEntry, WebSocketEntry } from '../../src/types';
+import type { ActionEntry, WsEntry } from '../../src/types';
 
 /**
  * Unit tests for the Processor edge cases.
@@ -13,16 +13,16 @@ const FILE = '/project/src/test.ts';
 
 function createOptions(overrides: Partial<Parameters<typeof processFile>[2]> = {}) {
   return {
-    registry: new Registry<BackendEntry>(),
-    wsRegistry: new Registry<WebSocketEntry>(),
+    registry: new Registry<ActionEntry>(),
+    wsRegistry: new Registry<WsEntry>(),
     root: ROOT,
     ...overrides,
   };
 }
 
 describe('Processor Edge Cases', () => {
-  describe('null return for files with no backend(/websocket( text', () => {
-    it('returns null for a file with no backend or websocket text', () => {
+  describe('null return for files with no $action(/$ws( text', () => {
+    it('returns null for a file with no action or ws text', () => {
       const code = `
         const foo = 42;
         export function hello() { return "hi"; }
@@ -52,11 +52,11 @@ describe('Processor Edge Cases', () => {
     });
   });
 
-  describe('null return for backend/websocket as identifiers (not call expressions)', () => {
-    it('returns null when backend is used as a variable name', () => {
+  describe('null return for action/ws as identifiers (not call expressions)', () => {
+    it('returns null when action is used as a variable name', () => {
       const code = `
-        const backend = { url: "/api" };
-        console.log(backend);
+        const action = { url: "/api" };
+        console.log(action);
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -64,10 +64,10 @@ describe('Processor Edge Cases', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when websocket is used as a variable name', () => {
+    it('returns null when ws is used as a variable name', () => {
       const code = `
-        const websocket = new WebSocket("ws://localhost");
-        websocket.send("hello");
+        const ws = new WebSocket("ws://localhost");
+        ws.send("hello");
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -75,13 +75,13 @@ describe('Processor Edge Cases', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null when backend is a property access', () => {
+    it('returns null when action is a property access', () => {
       const code = `
-        const config = { backend: "http://localhost" };
-        fetch(config.backend);
+        const config = { action: "http://localhost" };
+        fetch(config.action);
       `;
       const options = createOptions();
-      // This won't match the regex since there's no `backend(` pattern
+      // This won't match the regex since there's no `$action(` pattern
       const result = processFile(code, FILE, options);
 
       expect(result).toBeNull();
@@ -89,9 +89,9 @@ describe('Processor Edge Cases', () => {
   });
 
   describe('non-function argument leaves call untouched', () => {
-    it('returns null when backend() receives a string literal', () => {
+    it('returns null when $action() receives a string literal', () => {
       const code = `
-        const api = backend("/api/users");
+        const api = $action("/api/users");
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -100,9 +100,9 @@ describe('Processor Edge Cases', () => {
       expect(options.registry.size).toBe(0);
     });
 
-    it('returns null when backend() receives a number literal', () => {
+    it('returns null when $action() receives a number literal', () => {
       const code = `
-        const api = backend(42);
+        const api = $action(42);
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -111,9 +111,9 @@ describe('Processor Edge Cases', () => {
       expect(options.registry.size).toBe(0);
     });
 
-    it('returns null when backend() receives no arguments', () => {
+    it('returns null when $action() receives no arguments', () => {
       const code = `
-        const api = backend();
+        const api = $action();
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -123,10 +123,10 @@ describe('Processor Edge Cases', () => {
     });
   });
 
-  describe('websocket with empty handler object leaves call untouched', () => {
-    it('returns null when websocket() has an empty object literal', () => {
+  describe('ws with empty handler object leaves call untouched', () => {
+    it('returns null when $ws() has an empty object literal', () => {
       const code = `
-        const ws = websocket({});
+        const ws = $ws({});
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -135,9 +135,9 @@ describe('Processor Edge Cases', () => {
       expect(options.wsRegistry!.size).toBe(0);
     });
 
-    it('returns null when websocket object has unrelated keys', () => {
+    it('returns null when ws object has unrelated keys', () => {
       const code = `
-        const ws = websocket({ foo: () => {}, bar: "hello" });
+        const ws = $ws({ foo: () => {}, bar: "hello" });
       `;
       const options = createOptions();
       const result = processFile(code, FILE, options);
@@ -148,11 +148,11 @@ describe('Processor Edge Cases', () => {
   });
 
   describe('duplicate labels produce unique endpoints via line:col disambiguation', () => {
-    it('produces unique endpoints when two backend calls have the same label', () => {
+    it('produces unique endpoints when two action calls have the same label', () => {
       const code = `
-const api = backend((x: number) => x + 1);
+const api = $action((x: number) => x + 1);
 const api2 = api;
-const api3 = backend((y: number) => y + 2);
+const api3 = $action((y: number) => y + 2);
 `;
       // Both assigned to different variables - they get different labels
       const options = createOptions();
@@ -168,14 +168,14 @@ const api3 = backend((y: number) => y + 2);
     });
 
     it('appends line:col disambiguation for truly duplicate labels', () => {
-      // Two backend() calls in an array literal both get the same positional
+      // Two $action() calls in an array literal both get the same positional
       // label (e.g. "0", "1") — but nested in the same default export they
       // share the "default" prefix. Force same inferred label by putting both
       // at the same array index path in separate arrays:
       const code = [
         'export default [',
-        '  backend((x: number) => x),',
-        '  backend((y: number) => y),',
+        '  $action((x: number) => x),',
+        '  $action((y: number) => y),',
         '];',
       ].join('\n');
       const options = createOptions();
@@ -193,7 +193,7 @@ const api3 = backend((y: number) => y + 2);
   describe('warning emission for unresolved references when emitWarnings is enabled', () => {
     it('emits a console warning for unresolved references', () => {
       const code = `
-const handler = backend(() => {
+const handler = $action(() => {
   return unknownVariable;
 });
 `;
@@ -211,7 +211,7 @@ const handler = backend(() => {
 
     it('does not emit warnings when emitWarnings is disabled', () => {
       const code = `
-const handler = backend(() => {
+const handler = $action(() => {
   return unknownVariable;
 });
 `;
@@ -228,7 +228,7 @@ const handler = backend(() => {
   describe('destructuring parameters are correctly identified as bound variables', () => {
     it('does not warn for destructured parameter names', () => {
       const code = `
-const handler = backend(({ id, name }: { id: string; name: string }) => {
+const handler = $action(({ id, name }: { id: string; name: string }) => {
   return { id, name };
 });
 `;
@@ -244,7 +244,7 @@ const handler = backend(({ id, name }: { id: string; name: string }) => {
 
     it('correctly identifies nested destructured names', () => {
       const code = `
-const handler = backend(({ user: { firstName, lastName } }: any) => {
+const handler = $action(({ user: { firstName, lastName } }: any) => {
   return firstName + " " + lastName;
 });
 `;
@@ -262,7 +262,7 @@ const handler = backend(({ user: { firstName, lastName } }: any) => {
     it('unregisters endpoints when file no longer contains handlers', () => {
       const options = createOptions();
       const codeWithHandler = `
-const getTodos = backend(() => []);
+const getTodos = $action(() => []);
 `;
       // First process - registers endpoint
       const result1 = processFile(codeWithHandler, FILE, options);
@@ -279,10 +279,10 @@ const getTodos = "just a string";
       expect(options.registry.getEndpointsForFile(FILE).size).toBe(0);
     });
 
-    it('unregisters websocket endpoints too', () => {
+    it('unregisters ws endpoints too', () => {
       const options = createOptions();
       const codeWithWs = `
-const chat = websocket({ onMessage(ws, data) { ws.send(data); } });
+const chat = $ws({ onMessage(ws, data) { ws.send(data); } });
 `;
       const result1 = processFile(codeWithWs, FILE, options);
       expect(result1).not.toBeNull();
@@ -297,11 +297,11 @@ const chat = websocket({ onMessage(ws, data) { ws.send(data); } });
   });
 
   describe('server-only imports are removed from client output', () => {
-    it('removes import used only inside backend() handler', () => {
+    it('removes import used only inside $action() handler', () => {
       const code = `
 import { readFile } from "node:fs/promises";
 
-const getFile = backend(async (path: string) => {
+const getFile = $action(async (path: string) => {
   return readFile(path, "utf-8");
 });
 `;
@@ -314,13 +314,13 @@ const getFile = backend(async (path: string) => {
       expect(result!.code).not.toContain('node:fs/promises');
     });
 
-    it('keeps import used outside backend() handler', () => {
+    it('keeps import used outside $action() handler', () => {
       const code = `
 import { join } from "node:path";
 
 const basePath = join("/", "data");
 
-const getFile = backend(async () => {
+const getFile = $action(async () => {
   return join("/server", "file.txt");
 });
 `;
@@ -338,11 +338,11 @@ const getFile = backend(async () => {
       const code = `
 const config = { baseUrl: "/api" };
 
-const getTodos = backend(() => {
+const getTodos = $action(() => {
   return config.baseUrl + "/todos";
 });
 
-const getUsers = backend(() => {
+const getUsers = $action(() => {
   return config.baseUrl + "/users";
 });
 `;
@@ -361,15 +361,15 @@ const getUsers = backend(() => {
       expect(entries[0].moduleDeclsJs).toBe(entries[1].moduleDeclsJs);
     });
 
-    it('backend and websocket entries from the same file share moduleDeclsJs', () => {
+    it('action and ws entries from the same file share moduleDeclsJs', () => {
       const code = `
 const sharedState = new Map<string, string>();
 
-const getData = backend(() => {
+const getData = $action(() => {
   return Array.from(sharedState.entries());
 });
 
-const chat = websocket({
+const chat = $ws({
   onMessage(ws, data) {
     sharedState.set("last", data);
   }
@@ -382,11 +382,11 @@ const chat = websocket({
       expect(options.registry.size).toBe(1);
       expect(options.wsRegistry!.size).toBe(1);
 
-      const backendEntry = [...options.registry.values()][0];
+      const actionEntry = [...options.registry.values()][0];
       const wsEntry = [...options.wsRegistry!.values()][0];
-      expect(backendEntry.moduleDeclsJs).toBeDefined();
+      expect(actionEntry.moduleDeclsJs).toBeDefined();
       expect(wsEntry.moduleDeclsJs).toBeDefined();
-      expect(backendEntry.moduleDeclsJs).toBe(wsEntry.moduleDeclsJs);
+      expect(actionEntry.moduleDeclsJs).toBe(wsEntry.moduleDeclsJs);
     });
   });
 });

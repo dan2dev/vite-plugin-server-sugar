@@ -7,7 +7,7 @@ import { Registry } from "../src/core/registry";
 import { generateBundleContent } from "../src/build/bundle-generator";
 import { loadVirtualModule } from "../src/dev-server/virtual-modules";
 import { RESOLVED_FILE_PREFIX, WS_RUNTIME_GLOBAL_KEY } from "../src/constants";
-import type { BackendEntry, WebSocketEntry } from "../src/types";
+import type { ActionEntry, WsEntry } from "../src/types";
 
 /** Extracts the `const __wsConnections ... function __wrapWs(...) {...}` snippet from generated code. */
 function extractWrapWsSnippet(code: string): string {
@@ -18,7 +18,7 @@ function extractWrapWsSnippet(code: string): string {
 }
 
 function withTempRoot<T>(fn: (root: string) => T): T {
-  const root = mkdtempSync(join(tmpdir(), "websocket-test-"));
+  const root = mkdtempSync(join(tmpdir(), "ws-test-"));
   try {
     return fn(root);
   } finally {
@@ -26,19 +26,19 @@ function withTempRoot<T>(fn: (root: string) => T): T {
   }
 }
 
-describe("processFile: websocket()", () => {
-  test("registers a websocket entry and replaces the call with a connect() wrapper", () => {
+describe("processFile: $ws()", () => {
+  test("registers a ws entry and replaces the call with a connect() wrapper", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
       const code = [
-        "export const chat = websocket({",
+        "export const chat = $ws({",
         "  onOpen(ws) { ws.send('hi'); },",
         "  onMessage(ws, data) { ws.send(data); },",
         "});",
       ].join("\n");
 
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const result = processFile(code, file, { registry, wsRegistry, root });
 
       expect(result).not.toBeNull();
@@ -48,44 +48,44 @@ describe("processFile: websocket()", () => {
       expect(entry.handlersJs).toContain("onOpen");
       expect(entry.handlersJs).toContain("onMessage");
 
-      expect(result!.code).toContain("__websocketConnect");
+      expect(result!.code).toContain("__wsConnect");
       expect(result!.code).toContain("connect:");
-      expect(result!.code).not.toContain("websocket({");
+      expect(result!.code).not.toContain("$ws({");
     });
   });
 
-  test("shares module-level state between backend() and websocket() in the same file", () => {
+  test("shares module-level state between $action() and $ws() in the same file", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
       const code = [
         "const messages: string[] = [];",
         "",
-        "export const getHistory = backend(() => messages);",
+        "export const getHistory = $action(() => messages);",
         "",
-        "export const chat = websocket({",
+        "export const chat = $ws({",
         "  onMessage(ws, data) { messages.push(data); },",
         "});",
       ].join("\n");
 
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       processFile(code, file, { registry, wsRegistry, root });
 
-      const backendEntry = [...registry.values()][0]!;
+      const actionEntry = [...registry.values()][0]!;
       const wsEntry = [...wsRegistry.values()][0]!;
 
-      expect(backendEntry.moduleDeclsJs).toContain("messages");
-      expect(wsEntry.moduleDeclsJs).toBe(backendEntry.moduleDeclsJs);
+      expect(actionEntry.moduleDeclsJs).toContain("messages");
+      expect(wsEntry.moduleDeclsJs).toBe(actionEntry.moduleDeclsJs);
     });
   });
 
-  test("ignores websocket() calls without a recognized handler key", () => {
+  test("ignores $ws() calls without a recognized handler key", () => {
     withTempRoot((root) => {
       const file = join(root, "bad.ts");
-      const code = "export const x = websocket({ foo() {} });";
+      const code = "export const x = $ws({ foo() {} });";
 
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const result = processFile(code, file, { registry, wsRegistry, root });
 
       expect(result).toBeNull();
@@ -94,12 +94,12 @@ describe("processFile: websocket()", () => {
   });
 });
 
-describe("generateBundleContent: websocket()", () => {
-  test("wires Bun.serve with a websocket upgrade handler when ws entries exist", () => {
+describe("generateBundleContent: $ws()", () => {
+  test("wires Bun.serve with a ws upgrade handler when ws entries exist", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
         imports: [],
@@ -118,17 +118,17 @@ describe("generateBundleContent: websocket()", () => {
       );
 
       expect(code).not.toBeNull();
-      expect(code).toContain("__websocketHandlers");
+      expect(code).toContain("__wsHandlers");
       expect(code).toContain("server.upgrade(req");
-      expect(code).toContain("websocket: {");
+      expect(code).toContain("ws: {");
       expect(code).toContain("fetch(req, server)");
       expect(code).not.toContain("fetch: (req) => app.fetch(req),");
     });
   });
 
-  test("leaves the backend-only Bun.serve call untouched when there are no websocket entries", () => {
+  test("leaves the action-only Bun.serve call untouched when there are no ws entries", () => {
     withTempRoot((root) => {
-      const registry = new Registry<BackendEntry>();
+      const registry = new Registry<ActionEntry>();
       registry.set("todos/get", {
         endpoint: "todos/get",
         imports: [],
@@ -146,16 +146,16 @@ describe("generateBundleContent: websocket()", () => {
       );
 
       expect(code).toContain("fetch: (req) => app.fetch(req),");
-      expect(code).not.toContain("__websocketHandlers");
+      expect(code).not.toContain("__wsHandlers");
       expect(code).not.toContain("server.upgrade(req");
     });
   });
 
-  test("combines backend() and websocket() handlers from the same file into one shared IIFE", () => {
+  test("combines $action() and $ws() handlers from the same file into one shared IIFE", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const moduleDeclsJs = "const messages = [];";
 
       registry.set("chat/get-history", {
@@ -197,11 +197,11 @@ describe("generateBundleContent: websocket()", () => {
     });
   });
 
-  test("a sibling backend() handler can call <name>.send() to broadcast over the websocket", () => {
+  test("a sibling $action() handler can call <name>.send() to broadcast over the ws", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const moduleDeclsJs = "const history = [];";
 
       registry.set("chat/get-history", {
@@ -238,7 +238,7 @@ describe("generateBundleContent: websocket()", () => {
       expect(code).toContain("chat.send({ message: 'hi' })");
       // chat itself is bound through the broadcasting wrapper.
       expect(code).toContain('const chat = __wrapWs("chat/chat",');
-      // Bun.serve's websocket lifecycle tracks open connections per endpoint.
+      // Bun.serve's ws lifecycle tracks open connections per endpoint.
       expect(code).toContain("__wsConnections.set(ws.data.endpoint, __conns);");
       expect(code).toContain("__wsConnections.get(ws.data.endpoint)?.delete(ws);");
     });
@@ -246,8 +246,8 @@ describe("generateBundleContent: websocket()", () => {
 
   test("__wrapWs() in the generated bundle actually broadcasts send() to every registered connection", () => {
     withTempRoot((root) => {
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
         imports: [],
@@ -287,12 +287,12 @@ describe("generateBundleContent: websocket()", () => {
   });
 });
 
-describe("loadVirtualModule (dev): websocket() broadcast", () => {
-  test("wraps websocket handlers with a globalThis-backed broadcasting send()", () => {
+describe("loadVirtualModule (dev): $ws() broadcast", () => {
+  test("wraps ws handlers with a globalThis-backed broadcasting send()", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
         imports: [],
@@ -317,8 +317,8 @@ describe("loadVirtualModule (dev): websocket() broadcast", () => {
   test("the generated __wrapWs() shares its connection registry with dev-server/ws-upgrade.ts via globalThis", () => {
     withTempRoot((root) => {
       const file = join(root, "chat.ts");
-      const registry = new Registry<BackendEntry>();
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const registry = new Registry<ActionEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set("chat/chat", {
         endpoint: "chat/chat",
         imports: [],

@@ -6,8 +6,8 @@
     "types": [
       "vite/client",
       "bun-types",
-      "vite-plugin-server-build/backend",
-      "vite-plugin-server-build/websocket",
+      "vite-plugin-server-build/action",
+      "vite-plugin-server-build/ws",
       "node",
     ],
     "skipLibCheck": true,

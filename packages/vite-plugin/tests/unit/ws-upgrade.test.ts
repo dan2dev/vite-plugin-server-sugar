@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import type { ViteDevServer } from 'vite';
 import { Registry } from '../../src/core/registry';
-import type { WebSocketEntry } from '../../src/types';
+import type { WsEntry } from '../../src/types';
 
 /**
  * Unit tests for the WebSocket upgrade handler (ws-upgrade.ts).
@@ -57,7 +57,7 @@ function createMockRequest(url: string): IncomingMessage {
   } as unknown as IncomingMessage;
 }
 
-function setupWithRegistry(wsRegistry: Registry<WebSocketEntry>): {
+function setupWithRegistry(wsRegistry: Registry<WsEntry>): {
   server: ViteDevServer;
   triggerUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
 } {
@@ -87,7 +87,7 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.1: Requests without /__server-build-ws/ prefix are ignored', () => {
     it('does not destroy the socket for unrelated upgrade requests', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/some/other/path');
@@ -98,7 +98,7 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('ignores Vite HMR WebSocket upgrades', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/__vite_hmr');
@@ -111,7 +111,7 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.2: Unregistered endpoint path destroys socket', () => {
     it('destroys the socket when endpoint is not in the registry', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/__server-build-ws/chat');
@@ -122,10 +122,10 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('destroys the socket for a path not matching any registered endpoint', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       wsRegistry.set('notifications', {
         file: '/src/notifications.ts',
-      } as WebSocketEntry);
+      } as WsEntry);
 
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
@@ -139,7 +139,7 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.3: Invalid percent-encoding destroys socket without crash', () => {
     it('destroys socket for %ZZ invalid encoding without throwing', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/__server-build-ws/%ZZ');
@@ -152,7 +152,7 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('destroys socket for %GG%HH malformed sequence without throwing', () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
+      const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/__server-build-ws/%GG%HH');
@@ -167,8 +167,8 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.4: Invalid ?args= JSON defaults to empty array', () => {
     it('defaults to empty array when args is invalid JSON', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
@@ -199,8 +199,8 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('defaults to empty array when args query parameter is absent', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
@@ -230,8 +230,8 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.5: onOpen handler throwing closes socket with code 1011', () => {
     it('closes socket with code 1011 when onOpen throws', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
@@ -284,8 +284,8 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('closes socket with code 1011 when ssrLoadModule rejects', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
@@ -335,8 +335,8 @@ describe('WebSocket Upgrade Handler', () => {
 
   describe('Requirement 6.6: Invalid JSON in WebSocket message passes raw string to onMessage', () => {
     it('passes raw string when message is not valid JSON', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
@@ -396,8 +396,8 @@ describe('WebSocket Upgrade Handler', () => {
     });
 
     it('passes parsed object when message is valid JSON', async () => {
-      const wsRegistry = new Registry<WebSocketEntry>();
-      wsRegistry.set('chat', { file: '/src/chat.ts' } as WebSocketEntry);
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', { file: '/src/chat.ts' } as WsEntry);
 
       const { server, triggerUpgrade } = setupWithRegistry(wsRegistry);
 
