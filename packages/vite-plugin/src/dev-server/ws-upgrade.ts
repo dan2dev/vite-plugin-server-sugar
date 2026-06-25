@@ -10,9 +10,31 @@ import { requestUrl } from "./middleware";
 type ServerWs = WebSocket & { args: unknown[] };
 
 interface WsHandlers {
-  onOpen?(ws: ServerWs): void;
-  onMessage?(ws: ServerWs, data: unknown): void;
-  onClose?(ws: ServerWs): void;
+  onOpen?(ws: ServerWs): unknown;
+  onMessage?(ws: ServerWs, data: unknown): unknown;
+  onClose?(ws: ServerWs): unknown;
+}
+
+function handleWsError(endpoint: string, phase: string, error: unknown, ws: ServerWs): void {
+  console.error(`[server-build] Error in ws handler ${endpoint} (${phase}):`, error);
+  if (phase !== "close") ws.close(1011, "Internal error");
+}
+
+function callWsHandler(
+  endpoint: string,
+  phase: string,
+  ws: ServerWs,
+  handler: ((ws: ServerWs, ...args: unknown[]) => unknown) | undefined,
+  ...args: unknown[]
+): void {
+  if (!handler) return;
+  try {
+    Promise.resolve(handler(ws, ...args)).catch((error) =>
+      handleWsError(endpoint, phase, error, ws),
+    );
+  } catch (error) {
+    handleWsError(endpoint, phase, error, ws);
+  }
 }
 
 function parseArgs(raw: string | null): unknown[] {
@@ -60,7 +82,6 @@ export function setupWsUpgrade(
     "upgrade",
     (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       const url = requestUrl(req);
-      console.error("[ws-debug] upgrade request for", url.pathname);
       if (!url.pathname.startsWith(WS_API_PREFIX)) return;
 
       let endpoint: string;
@@ -101,11 +122,13 @@ export function setupWsUpgrade(
             // Wired before onOpen() runs so the socket is still untracked on
             // close even if onOpen() throws (the catch below closes it).
             rawSocket.on("close", () => {
-              wsConnections().get(endpoint)?.delete(ws);
-              handlers.onClose?.(ws);
+              const endpointConns = wsConnections().get(endpoint);
+              endpointConns?.delete(ws);
+              if (endpointConns?.size === 0) wsConnections().delete(endpoint);
+              callWsHandler(endpoint, "close", ws, handlers.onClose);
             });
 
-            handlers.onOpen?.(ws);
+            callWsHandler(endpoint, "open", ws, handlers.onOpen);
 
             rawSocket.on("message", (raw: Buffer) => {
               let data: unknown;
@@ -114,7 +137,7 @@ export function setupWsUpgrade(
               } catch {
                 data = raw.toString();
               }
-              handlers.onMessage?.(ws, data);
+              callWsHandler(endpoint, "message", ws, handlers.onMessage, data);
             });
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);

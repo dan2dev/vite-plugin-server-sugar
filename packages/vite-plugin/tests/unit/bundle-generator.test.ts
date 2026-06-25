@@ -66,6 +66,8 @@ describe('Bundle Generator Output Structure', () => {
       expect(result).toContain('application/json');
       expect(result).toContain('JSON.parse');
       expect(result).toContain('entry.fn(...args)');
+      expect(result).toContain('contentMime !== "application/json"');
+      expect(result).toContain('!contentMime.endsWith("+json")');
     });
   });
 
@@ -97,6 +99,9 @@ describe('Bundle Generator Output Structure', () => {
       expect(result).toContain('open(ws)');
       expect(result).toContain('message(ws, raw)');
       expect(result).toContain('close(ws)');
+      expect(result).toContain('__callWsHandler');
+      expect(result).toContain('__handleWsError');
+      expect(result).toContain('__conns?.delete(ws)');
     });
   });
 

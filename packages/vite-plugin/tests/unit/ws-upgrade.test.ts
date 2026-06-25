@@ -86,15 +86,17 @@ describe('Ws Upgrade Handler', () => {
   });
 
   describe('Requirement 6.1: Requests without /__server-build-ws/ prefix are ignored', () => {
-    it('does not destroy the socket for unrelated upgrade requests', () => {
+    it('does not destroy or log for unrelated upgrade requests', () => {
       const wsRegistry = new Registry<WsEntry>();
       const { triggerUpgrade } = setupWithRegistry(wsRegistry);
       const socket = createMockSocket();
       const req = createMockRequest('/some/other/path');
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       triggerUpgrade(req, socket, Buffer.alloc(0));
 
       expect(socket.destroy).not.toHaveBeenCalled();
+      expect(consoleSpy).not.toHaveBeenCalled();
     });
 
     it('ignores Vite HMR Ws upgrades', () => {
@@ -273,7 +275,8 @@ describe('Ws Upgrade Handler', () => {
       // Wait for the async handler to settle
       await vi.waitFor(() => {
         expect(consoleSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Handler exploded'),
+          expect.stringContaining('[server-build] Error in ws handler chat (open):'),
+          expect.any(Error),
         );
       });
 
