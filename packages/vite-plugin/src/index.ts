@@ -29,6 +29,7 @@ import { bundleServerSource, compileServer } from "./build/bundler";
 import {
   API_PREFIX,
   RESOLVED_CLIENT_HELPER_ID,
+  RESOLVED_CLIENT_HTTP_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
   RESOLVED_CLIENT_WORKER_HELPER_ID,
   RESOLVED_FILE_PREFIX,
@@ -219,7 +220,7 @@ export function serverBuildPlugin(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const hono = app as any;
 
-              hono.post(`${API_PREFIX}*`, async (c: any) => {
+              hono.all(`${API_PREFIX}*`, async (c: any) => {
                 const url = new URL(c.req.url);
                 let endpoint: string;
                 try {
@@ -230,7 +231,8 @@ export function serverBuildPlugin(
                   return c.json({ error: "Bad request" }, 400);
                 }
 
-                if (!registry.has(endpoint)) {
+                const entry = registry.get(endpoint);
+                if (!entry) {
                   return c.json(
                     {
                       error: `No server handler registered: '${endpoint}'`,
@@ -239,26 +241,41 @@ export function serverBuildPlugin(
                   );
                 }
 
+                const expectedMethod = entry.httpMethod ?? "POST";
+                if (c.req.method !== expectedMethod) {
+                  return c.json({ error: "Method not allowed" }, 405, {
+                    Allow: expectedMethod,
+                  });
+                }
+
                 try {
-                  const contentType = c.req.header("content-type");
-                  if (
-                    contentType &&
-                    !contentType.toLowerCase().includes("application/json")
-                  ) {
-                    return c.json({ error: "Unsupported media type" }, 415);
-                  }
-
-                  const rawBody = await c.req.text();
-                  const body = rawBody.trim();
-                  const payload = body ? JSON.parse(body) : [];
-                  const args = Array.isArray(payload) ? payload : [payload];
-
                   const mod = await server.ssrLoadModule(
                     VIRTUAL_PREFIX + endpoint,
                   );
                   const fn = mod.default as (...args: unknown[]) => unknown;
-                  const result = await fn(...args);
 
+                  let result: unknown;
+                  if (entry.httpMethod) {
+                    result = await fn(c);
+                  } else {
+                    const contentType = c.req.header("content-type");
+                    if (
+                      contentType &&
+                      !contentType.toLowerCase().includes("application/json")
+                    ) {
+                      return c.json({ error: "Unsupported media type" }, 415);
+                    }
+
+                    const rawBody = await c.req.text();
+                    const body = rawBody.trim();
+                    const payload = body ? JSON.parse(body) : [];
+                    const args = Array.isArray(payload) ? payload : [payload];
+                    result = await fn(...args);
+                  }
+
+                  if (result instanceof Response) {
+                    return result;
+                  }
                   if (result === undefined) {
                     return c.body(null, 204);
                   }
@@ -270,12 +287,6 @@ export function serverBuildPlugin(
                   );
                   return c.json({ error: msg }, 500);
                 }
-              });
-
-              hono.all(`${API_PREFIX}*`, (c: any) => {
-                return c.json({ error: "Method not allowed" }, 405, {
-                  Allow: "POST",
-                });
               });
             }
 
@@ -390,6 +401,7 @@ export function serverBuildPlugin(
         cleanId.startsWith(RESOLVED_WORKER_PREFIX) ||
         cleanId.startsWith(RESOLVED_FILE_PREFIX) ||
         cleanId === RESOLVED_CLIENT_HELPER_ID ||
+        cleanId === RESOLVED_CLIENT_HTTP_HELPER_ID ||
         cleanId === RESOLVED_CLIENT_WS_HELPER_ID ||
         cleanId === RESOLVED_CLIENT_WORKER_HELPER_ID
       ) {

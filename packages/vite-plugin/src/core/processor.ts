@@ -8,6 +8,8 @@ import {
   API_PREFIX,
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
+  CLIENT_HTTP_FETCH_EXPORT,
+  CLIENT_HTTP_HELPER_ID,
   CLIENT_WS_CONNECT_EXPORT,
   CLIENT_WS_HELPER_ID,
   CLIENT_WORKER_HELPER_ID,
@@ -15,6 +17,7 @@ import {
   VIRTUAL_WORKER_PREFIX,
   WS_API_PREFIX,
 } from "../constants";
+import { HTTP_METHOD_MACROS, HTTP_METHODS_WITH_BODY } from "../types";
 import { normalizePath } from "../utils/path";
 import { toKebabCase } from "../utils/crypto";
 import {
@@ -179,7 +182,7 @@ export function processFile(
   const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
   const workerRegistry = options.workerRegistry;
 
-  if (!/(?:\$server|\$ws|\$worker)\s*\(/.test(code)) {
+  if (!/(?:\$server|\$ws|\$worker|\$get|\$post|\$put|\$patch|\$delete)\s*\(/.test(code)) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
     workerRegistry?.unregisterFile(id);
@@ -216,6 +219,8 @@ export function processFile(
   const clientWsConnectHelperName = uniqueLocalName(CLIENT_WS_CONNECT_EXPORT);
   const clientWsArgsName = uniqueLocalName("__wsArgs");
   const clientWorkerProxyHelperName = uniqueLocalName(CLIENT_WORKER_PROXY_EXPORT);
+  const clientHttpFetchHelperName = uniqueLocalName(CLIENT_HTTP_FETCH_EXPORT);
+  let hasHttpEntries = false;
 
   function endpointName(file: string, name: string): string {
     let rel = normalizePath(relative(root, file));
@@ -488,6 +493,61 @@ export function processFile(
       return;
     }
 
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      HTTP_METHOD_MACROS.has(node.expression.text)
+    ) {
+      const call = node;
+      const macroName = node.expression.text;
+      const httpMethod = HTTP_METHOD_MACROS.get(macroName)!;
+      const arg = node.arguments[0];
+
+      if (!arg || !ts.isFunctionLike(arg)) {
+        return;
+      }
+
+      const endpoint = uniqueEndpoint(
+        inferBackendLabel(call, sf, macroName),
+        call,
+        "server",
+      );
+
+      const fnSource = code.slice(arg.getStart(sf), arg.getEnd());
+      const fnJs = transpileTs(fnSource);
+      const imports = collectRuntimeImports(collectReferencedNames(arg));
+      const originalName = originalNameOf(call);
+
+      entries.push({ endpoint, imports, fnJs, file: id, originalName, httpMethod });
+      hasHttpEntries = true;
+
+      const bound = collectBoundNames(arg);
+      for (const name of collectValueReferences(arg)) {
+        if (HTTP_METHOD_MACROS.has(name)) continue;
+        if (
+          bound.has(name) ||
+          fileImportNames.has(name) ||
+          KNOWN_GLOBALS.has(name)
+        )
+          continue;
+        allHandlerFreeRefs.add(name);
+      }
+
+      handlerNodes.set(endpoint, { node: arg, kind: "server" });
+
+      const url = JSON.stringify(endpointUrl(endpoint));
+      const fetchWrapper = HTTP_METHODS_WITH_BODY.has(httpMethod)
+        ? `async (__body, __query) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, __body, __query)`
+        : `async (__query) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, undefined, __query)`;
+
+      replacements.push({
+        start: call.getStart(sf),
+        end: call.getEnd(),
+        text: fetchWrapper,
+      });
+      return;
+    }
+
     ts.forEachChild(node, walk);
   }
 
@@ -523,7 +583,7 @@ export function processFile(
       if (
         ts.isCallExpression(n) &&
         ts.isIdentifier(n.expression) &&
-        (n.expression.text === "$server" || n.expression.text === "$ws" || n.expression.text === "$worker")
+        (n.expression.text === "$server" || n.expression.text === "$ws" || n.expression.text === "$worker" || HTTP_METHOD_MACROS.has(n.expression.text))
       ) {
         found = true;
         return;
@@ -765,7 +825,7 @@ export function processFile(
     helperImports.push(text);
   }
 
-  if (entries.length > 0) {
+  if (entries.some((e) => !e.httpMethod)) {
     const importClause =
       clientFetchHelperName === CLIENT_FETCH_EXPORT
         ? CLIENT_FETCH_EXPORT
@@ -894,6 +954,16 @@ export function processFile(
         : `${CLIENT_WORKER_PROXY_EXPORT} as ${clientWorkerProxyHelperName}`;
     pushHelperImport(
       `import { ${workerInvokeImportClause} } from ${JSON.stringify(CLIENT_WORKER_HELPER_ID)};`,
+    );
+  }
+
+  if (hasHttpEntries) {
+    const httpImportClause =
+      clientHttpFetchHelperName === CLIENT_HTTP_FETCH_EXPORT
+        ? CLIENT_HTTP_FETCH_EXPORT
+        : `${CLIENT_HTTP_FETCH_EXPORT} as ${clientHttpFetchHelperName}`;
+    pushHelperImport(
+      `import { ${httpImportClause} } from ${JSON.stringify(CLIENT_HTTP_HELPER_ID)};`,
     );
   }
 
@@ -1031,6 +1101,28 @@ export function processFile(
       end: declareWorkerMatch.index + declareWorkerMatch[0].length,
       text: "",
     });
+  }
+  for (const macroName of HTTP_METHOD_MACROS.keys()) {
+    const escaped = macroName.replace("$", "\\$");
+    const re = new RegExp(`declare\\s+function\\s+${escaped}\\s*[<(][^;]*;`);
+    const match = re.exec(code);
+    if (match) {
+      replacements.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        text: "",
+      });
+    }
+  }
+  {
+    const declareServerRequestMatch = /interface\s+ServerRequest\s*<[^{]*\{[^}]*\}/.exec(code);
+    if (declareServerRequestMatch) {
+      replacements.push({
+        start: declareServerRequestMatch.index,
+        end: declareServerRequestMatch.index + declareServerRequestMatch[0].length,
+        text: "",
+      });
+    }
   }
 
   // Emit deferred warnings now that we know which module-level names are captured.

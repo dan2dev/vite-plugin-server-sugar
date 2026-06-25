@@ -204,9 +204,9 @@ describe('Bundle Generator Structural Shape', () => {
       expect(output).toContain("app.all('/__server-build/");
     });
 
-    it('output includes Allow: POST header in the 405 response', () => {
+    it('output includes Allow header in the 405 response', () => {
       const output = generateWithServerEntry();
-      expect(output).toContain("Allow: 'POST'");
+      expect(output).toContain("Allow: expectedMethod");
     });
   });
 

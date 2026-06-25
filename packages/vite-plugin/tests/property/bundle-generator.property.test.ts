@@ -68,9 +68,9 @@ describe('Bundle Generator', () => {
           const bunServeMatches = output!.match(/Bun\.serve\(/g) ?? [];
           expect(bunServeMatches.length).toBe(1);
 
-          // (2) A POST route handler for /__server-build/*
+          // (2) A route handler for /__server-build/*
           expect(output!).toContain("'/__server-build/*'");
-          expect(output!).toContain('.post(');
+          expect(output!).toContain('.all(');
 
           // (3) When ws entries exist, a websocket: configuration block
           if (dedupedWs.length > 0) {

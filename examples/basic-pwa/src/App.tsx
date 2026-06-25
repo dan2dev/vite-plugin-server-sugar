@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import "./App.css";
-import { getTodos, addTodo, toggleTodo, deleteTodo, getSomeData } from "./todos";
+import { getTodos, addTodo, toggleTodo, deleteTodo, getSomeData, getSomeData2 } from "./todos";
 import type { Todo } from "./todos";
 import { chat, getChatHistory } from "./chat";
 import { demoWorker } from "./worker-demo";
@@ -15,14 +15,6 @@ const globalState = {
 		return "danilo2";
 	},
 };
-
-const getSomeData2 = $server(async () => {
-	globalState.count1 += 1;
-	return {
-		count: globalState.count1,
-		name: globalState.name,
-	};
-});
 
 function Chat() {
 	const [messages, setMessages] = useState<string[]>([]);
@@ -235,12 +227,16 @@ function App() {
 	const [adding, setAdding] = useState(false);
 	const [state, setState] = useState<{ count: number; name: string }>({
 		count: 0,
-		// name: '',
 		name: globalState.name,
 	});
+	const [httpData, setHttpData] = useState<{ userId: string; contentType: string | undefined } | null>(null);
 
 	useEffect(() => {
-		Promise.all([getTodos().then(setTodos), getSomeData().then(setState), getSomeData2().then(setState)]).finally(() => {
+		Promise.all([
+			getTodos().then(setTodos),
+			getSomeData().then(setState),
+			getSomeData2({ id: "user-123" }).then(setHttpData),
+		]).finally(() => {
 			setLoading(false);
 		});
 	}, []);
@@ -311,6 +307,15 @@ function App() {
 						</li>
 					))}
 				</ul>
+			)}
+
+			{httpData && (
+				<section id="http-data">
+					<h2>$get endpoint</h2>
+					<pre style={{ textAlign: "left", background: "#1a1a1a", padding: "1rem", borderRadius: "8px", fontSize: "0.85rem" }}>
+						{JSON.stringify(httpData, null, 2)}
+					</pre>
+				</section>
 			)}
 
 			<Chat />

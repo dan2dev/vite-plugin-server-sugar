@@ -27,6 +27,10 @@ export const CLIENT_WS_CONNECT_EXPORT = "__wsConnect";
 // generated file, so it tracks connections with a plain top-level Map instead.
 export const WS_RUNTIME_GLOBAL_KEY = "__server_build_ws_connections__";
 
+export const CLIENT_HTTP_HELPER_ID = "virtual:server-build/http-fetch";
+export const RESOLVED_CLIENT_HTTP_HELPER_ID = "\0virtual:server-build/http-fetch";
+export const CLIENT_HTTP_FETCH_EXPORT = "__serverHttpFetch";
+
 export const VIRTUAL_WORKER_PREFIX = "virtual:server-build/worker/";
 export const RESOLVED_WORKER_PREFIX = "\0virtual:server-build/worker/";
 export const CLIENT_WORKER_HELPER_ID = "virtual:server-build/worker-invoke";

@@ -151,26 +151,26 @@ describe("Preservation: Throw on missing entry", () => {
 describe("Preservation: API routing present", () => {
   /**
    * For any valid configuration with endpoints, the generated code includes
-   * the POST handler for `/__server-build/*`.
+   * the catch-all handler for `/__server-build/*`.
    *
    * **Validates: Requirements 3.1**
    */
-  test("generated code includes POST handler for /__server-build/*", () => {
+  test("generated code includes catch-all handler for /__server-build/*", () => {
     const code = generateWithEndpoints(["getTodos"]);
-    expect(code).toContain("app.post('/__server-build/*'");
+    expect(code).toContain("app.all('/__server-build/*'");
   });
 
-  test("generated code includes decodeURIComponent in POST handler", () => {
+  test("generated code includes decodeURIComponent in handler", () => {
     const code = generateWithEndpoints(["getTodos"]);
     expect(code).toContain("decodeURIComponent");
   });
 
-  test("POST handler routes to __serverHandlers", () => {
+  test("handler routes to __serverHandlers entries", () => {
     const code = generateWithEndpoints(["getTodos"]);
-    expect(code).toContain("const handler = __serverHandlers[endpoint]");
+    expect(code).toContain("const entry = __serverHandlers[endpoint]");
   });
 
-  test("POST handler returns 404 for unregistered endpoints", () => {
+  test("handler returns 404 for unregistered endpoints", () => {
     const code = generateWithEndpoints(["getTodos"]);
     expect(code).toContain("Handler not found for endpoint");
     expect(code).toContain("}, 404)");
@@ -179,24 +179,25 @@ describe("Preservation: API routing present", () => {
 
 describe("Preservation: 405 handler present", () => {
   /**
-   * Generated code includes the `app.all` 405 method restriction for
-   * non-POST requests to API endpoints.
+   * Generated code enforces the expected HTTP method per endpoint and
+   * returns 405 for mismatches.
    *
    * **Validates: Requirements 3.4**
    */
-  test("generated code includes app.all 405 handler", () => {
+  test("generated code includes method enforcement in handler", () => {
     const code = generateWithEndpoints(["addTodo"]);
     expect(code).toContain("app.all('/__server-build/*'");
   });
 
   test("405 handler returns Method not allowed error", () => {
     const code = generateWithEndpoints(["addTodo"]);
-    expect(code).toContain("{ error: 'Method not allowed' }, 405");
+    expect(code).toContain('"Method not allowed"');
+    expect(code).toContain("405");
   });
 
-  test("405 handler includes Allow: POST header", () => {
+  test("405 handler includes Allow header with expected method", () => {
     const code = generateWithEndpoints(["addTodo"]);
-    expect(code).toContain("Allow: 'POST'");
+    expect(code).toContain("Allow: expectedMethod");
   });
 });
 
@@ -338,7 +339,6 @@ describe("Preservation: Generated code without server entry", () => {
     expect(code).toContain("import { Hono } from 'hono'");
     expect(code).toContain("const app = new Hono()");
     // Should still have the API routing
-    expect(code).toContain("app.post('/__server-build/*'");
     expect(code).toContain("app.all('/__server-build/*'");
   });
 });

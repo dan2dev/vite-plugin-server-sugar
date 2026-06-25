@@ -61,11 +61,11 @@ describe('Bundle Generator Output Structure', () => {
       );
 
       expect(result).not.toBeNull();
-      expect(result).toContain("app.post('/__server-build/*'");
+      expect(result).toContain("app.all('/__server-build/*'");
       expect(result).toContain('decodeURIComponent');
       expect(result).toContain('application/json');
       expect(result).toContain('JSON.parse');
-      expect(result).toContain('handler(...args)');
+      expect(result).toContain('entry.fn(...args)');
     });
   });
 

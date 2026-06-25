@@ -5,12 +5,26 @@ export interface RuntimeImport {
   specifier: string;
 }
 
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export const HTTP_METHOD_MACROS = new Map<string, HttpMethod>([
+  ['$get', 'GET'],
+  ['$post', 'POST'],
+  ['$put', 'PUT'],
+  ['$patch', 'PATCH'],
+  ['$delete', 'DELETE'],
+]);
+
+export const HTTP_METHODS_WITH_BODY = new Set<HttpMethod>(['POST', 'PUT', 'PATCH']);
+
 export interface ServerEntry {
   endpoint: string;
   imports: RuntimeImport[];
   /** Transpiled JS arrow-function expression (types stripped). */
   fnJs: string;
   file: string;
+  /** When set, the entry is an HTTP method endpoint (handler receives Request). */
+  httpMethod?: HttpMethod;
   /**
    * Original source identifier when the handler is assigned via
    * `const originalName = $server(...)`. Used by the bundle generator to

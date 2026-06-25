@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { Buffer } from 'node:buffer';
 import type { ViteDevServer } from 'vite';
 import { Registry } from '../core/registry';
-import type { FetchApp } from '../types';
+import type { FetchApp, ServerEntry } from '../types';
 import { VIRTUAL_PREFIX } from '../constants';
 
 export function headersFromNode(headers: IncomingHttpHeaders): Headers {
@@ -55,6 +55,35 @@ export async function nodeRequestToWeb(req: IncomingMessage): Promise<Request> {
   });
 }
 
+export function createServerContext(raw: Request): unknown {
+  const url = new URL(raw.url);
+  return {
+    req: {
+      raw,
+      url: raw.url,
+      method: raw.method,
+      param(key?: string) {
+        if (key === undefined) return {};
+        return undefined;
+      },
+      query(key?: string) {
+        if (key === undefined) return Object.fromEntries(url.searchParams);
+        return url.searchParams.get(key) ?? undefined;
+      },
+      header(name?: string) {
+        if (name === undefined) {
+          const headers: Record<string, string> = {};
+          raw.headers.forEach((v, k) => { headers[k] = v; });
+          return headers;
+        }
+        return raw.headers.get(name) ?? undefined;
+      },
+      json: () => raw.json(),
+      text: () => raw.text(),
+    },
+  };
+}
+
 export async function writeWebResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status;
   response.headers.forEach((value, name) => {
@@ -94,26 +123,43 @@ export async function handleGeneratedServerRequest(
   req: IncomingMessage,
   res: ServerResponse,
   endpoint: string,
-  registry: Registry
+  registry: Registry<ServerEntry>
 ): Promise<void> {
-  if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
-    res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST' });
-    res.end(JSON.stringify({ error: 'Method not allowed' }));
-    return;
-  }
-
-  if (!registry.has(endpoint)) {
+  const entry = registry.get(endpoint);
+  if (!entry) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: `No server handler registered: '${endpoint}'` }));
     return;
   }
 
+  const reqMethod = (req.method ?? 'GET').toUpperCase();
+  const expectedMethod = entry.httpMethod ?? 'POST';
+
+  if (reqMethod !== expectedMethod) {
+    res.writeHead(405, { 'Content-Type': 'application/json', Allow: expectedMethod });
+    res.end(JSON.stringify({ error: 'Method not allowed' }));
+    return;
+  }
+
   try {
-    const body = hasRequestBody(req) ? await readNodeBody(req) : Buffer.alloc(0);
-    const args = serverArgsFromBody(body);
     const mod = await server.ssrLoadModule(VIRTUAL_PREFIX + endpoint);
     const fn = mod.default as (...args: unknown[]) => unknown;
-    const result = await fn(...args);
+
+    let result: unknown;
+    if (entry.httpMethod) {
+      const webReq = await nodeRequestToWeb(req);
+      const ctx = createServerContext(webReq);
+      result = await fn(ctx);
+    } else {
+      const body = hasRequestBody(req) ? await readNodeBody(req) : Buffer.alloc(0);
+      const args = serverArgsFromBody(body);
+      result = await fn(...args);
+    }
+
+    if (result instanceof Response) {
+      await writeWebResponse(res, result);
+      return;
+    }
 
     if (result === undefined) {
       res.writeHead(204);

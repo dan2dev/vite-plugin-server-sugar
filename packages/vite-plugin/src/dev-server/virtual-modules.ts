@@ -5,11 +5,14 @@ import type { ServerEntry, RuntimeImport, WsEntry, WorkerEntry } from "../types"
 import {
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
+  CLIENT_HTTP_FETCH_EXPORT,
+  CLIENT_HTTP_HELPER_ID,
   CLIENT_WORKER_HELPER_ID,
   CLIENT_WORKER_PROXY_EXPORT,
   CLIENT_WS_CONNECT_EXPORT,
   CLIENT_WS_HELPER_ID,
   RESOLVED_CLIENT_HELPER_ID,
+  RESOLVED_CLIENT_HTTP_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
   RESOLVED_CLIENT_WORKER_HELPER_ID,
   RESOLVED_FILE_PREFIX,
@@ -89,6 +92,9 @@ export function resolveVirtualId(id: string): string | undefined {
   }
   if (id === CLIENT_WS_HELPER_ID) {
     return RESOLVED_CLIENT_WS_HELPER_ID;
+  }
+  if (id === CLIENT_HTTP_HELPER_ID) {
+    return RESOLVED_CLIENT_HTTP_HELPER_ID;
   }
   if (id === CLIENT_WORKER_HELPER_ID) {
     return RESOLVED_CLIENT_WORKER_HELPER_ID;
@@ -354,6 +360,38 @@ export function loadVirtualModule(
         `    headers: { 'Content-Type': 'application/json' },`,
         `    body: __body,`,
         `  });`,
+        `  const __text = await __r.text();`,
+        `  if (!__r.ok) {`,
+        `    let __message = __text || __r.statusText;`,
+        `    try {`,
+        `      const __error = JSON.parse(__text);`,
+        `      __message = __error?.error || __message;`,
+        `    } catch {}`,
+        `    throw new Error(__message);`,
+        `  }`,
+        `  return __text ? JSON.parse(__text) : undefined;`,
+        `}`,
+        "",
+      ].join("\n"),
+      map: null,
+    };
+  }
+
+  if (id === RESOLVED_CLIENT_HTTP_HELPER_ID) {
+    return {
+      code: [
+        `export async function ${CLIENT_HTTP_FETCH_EXPORT}(__method, __endpoint, __body, __query) {`,
+        `  let __url = __endpoint;`,
+        `  if (__query) {`,
+        `    const __params = new URLSearchParams(__query);`,
+        `    __url += '?' + __params.toString();`,
+        `  }`,
+        `  const __opts = { method: __method };`,
+        `  if (__body !== undefined) {`,
+        `    __opts.headers = { 'Content-Type': 'application/json' };`,
+        `    __opts.body = JSON.stringify(__body);`,
+        `  }`,
+        `  const __r = await fetch(__url, __opts);`,
         `  const __text = await __r.text();`,
         `  if (!__r.ok) {`,
         `    let __message = __text || __r.statusText;`,

@@ -120,7 +120,7 @@ describe("generateBundleContent: $ws()", () => {
       expect(code).not.toBeNull();
       expect(code).toContain("__wsHandlers");
       expect(code).toContain("server.upgrade(req");
-      expect(code).toContain("ws: {");
+      expect(code).toContain("websocket: {");
       expect(code).toContain("fetch(req, server)");
       expect(code).not.toContain("fetch: (req) => app.fetch(req),");
     });
