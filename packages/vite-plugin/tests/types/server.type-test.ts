@@ -41,3 +41,120 @@ describe('server type inference', () => {
     $server({ key: 'value' });
   });
 });
+
+describe('$get type inference', () => {
+  it('infers return type', () => {
+    const fn = $get(async (c) => ({ id: 1, name: 'test' }));
+    expectTypeOf(fn).returns.toEqualTypeOf<Promise<{ id: number; name: string }>>();
+  });
+
+  it('accepts optional query and optional options when query is untyped', () => {
+    const fn = $get(async (c) => 'ok');
+    fn();
+    fn({ page: '1' });
+    fn(undefined, { headers: { Authorization: 'Bearer x' } });
+    fn({ page: '1' }, { headers: { Authorization: 'Bearer x' } });
+  });
+
+  it('requires typed query as first arg', () => {
+    const fn = $get(async (c: ServerContext<never, { id: string }>) => ({ id: c.req.query('id') }));
+    fn({ id: '123' });
+    fn({ id: '123' }, { headers: { 'X-Custom': 'val' } });
+    // @ts-expect-error missing required query property
+    fn({});
+    // @ts-expect-error query is required when TQuery is typed
+    fn();
+  });
+
+  it('infers FetchOptions shape correctly', () => {
+    const fn = $get(async (c) => 'ok');
+    // @ts-expect-error headers must be Record<string, string>
+    fn(undefined, { headers: { key: 123 } });
+  });
+});
+
+describe('$post type inference', () => {
+  it('infers body type and return type', () => {
+    const fn = $post(async (c: ServerContext<{ name: string }>) => {
+      const body = await c.req.json();
+      return { id: 1, name: body.name };
+    });
+    expectTypeOf(fn).returns.toEqualTypeOf<Promise<{ id: number; name: string }>>();
+    fn({ name: 'test' });
+    fn({ name: 'test' }, undefined, { headers: { Authorization: 'Bearer x' } });
+    // @ts-expect-error wrong body type
+    fn({ wrong: true });
+  });
+
+  it('accepts body + typed query + options', () => {
+    const fn = $post(async (c: ServerContext<{ name: string }, { page: string }>) => 'ok');
+    fn({ name: 'test' }, { page: '1' });
+    fn({ name: 'test' }, { page: '1' }, { headers: { 'X-Custom': 'val' } });
+    // @ts-expect-error missing required query property
+    fn({ name: 'test' }, {});
+  });
+
+  it('accepts optional query when untyped', () => {
+    const fn = $post(async (c: ServerContext<{ name: string }>) => 'ok');
+    fn({ name: 'test' });
+    fn({ name: 'test' }, { sort: 'asc' });
+    fn({ name: 'test' }, undefined, { headers: { Authorization: 'Bearer x' } });
+  });
+});
+
+describe('$put type inference', () => {
+  it('mirrors $post behavior', () => {
+    const fn = $put(async (c: ServerContext<{ value: number }>) => ({ updated: true }));
+    fn({ value: 42 });
+    fn({ value: 42 }, undefined, { headers: { Authorization: 'Bearer x' } });
+    expectTypeOf(fn).returns.toEqualTypeOf<Promise<{ updated: boolean }>>();
+    // @ts-expect-error wrong body type
+    fn('bad');
+  });
+});
+
+describe('$patch type inference', () => {
+  it('mirrors $post behavior', () => {
+    const fn = $patch(async (c: ServerContext<{ partial: boolean }>) => 'patched');
+    fn({ partial: true });
+    fn({ partial: true }, undefined, { headers: { Authorization: 'Bearer x' } });
+    // @ts-expect-error wrong body type
+    fn({});
+  });
+});
+
+describe('$delete type inference', () => {
+  it('mirrors $get behavior', () => {
+    const fn = $delete(async (c: ServerContext<never, { id: string }>) => ({ deleted: true }));
+    fn({ id: '123' });
+    fn({ id: '123' }, { headers: { Authorization: 'Bearer x' } });
+    expectTypeOf(fn).returns.toEqualTypeOf<Promise<{ deleted: boolean }>>();
+    // @ts-expect-error missing required query
+    fn();
+  });
+
+  it('accepts optional query when untyped', () => {
+    const fn = $delete(async (c) => 'ok');
+    fn();
+    fn({ id: '123' });
+    fn(undefined, { headers: { Authorization: 'Bearer x' } });
+  });
+});
+
+describe('$head type inference', () => {
+  it('mirrors $get behavior', () => {
+    const fn = $head(async (c: ServerContext<never, { id: string }>) => ({ exists: true }));
+    fn({ id: '123' });
+    fn({ id: '123' }, { headers: { 'X-Custom': 'val' } });
+    expectTypeOf(fn).returns.toEqualTypeOf<Promise<{ exists: boolean }>>();
+    // @ts-expect-error missing required query
+    fn();
+  });
+
+  it('accepts optional query when untyped', () => {
+    const fn = $head(async (c) => 'ok');
+    fn();
+    fn({ id: '123' });
+    fn(undefined, { headers: { Authorization: 'Bearer x' } });
+  });
+});

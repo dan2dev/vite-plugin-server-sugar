@@ -5,7 +5,7 @@ export interface RuntimeImport {
   specifier: string;
 }
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD';
 
 export const HTTP_METHOD_MACROS = new Map<string, HttpMethod>([
   ['$get', 'GET'],
@@ -13,6 +13,7 @@ export const HTTP_METHOD_MACROS = new Map<string, HttpMethod>([
   ['$put', 'PUT'],
   ['$patch', 'PATCH'],
   ['$delete', 'DELETE'],
+  ['$head', 'HEAD'],
 ]);
 
 export const HTTP_METHODS_WITH_BODY = new Set<HttpMethod>(['POST', 'PUT', 'PATCH']);

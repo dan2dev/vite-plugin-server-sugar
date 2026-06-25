@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import "./App.css";
-import { getTodos, addTodo, toggleTodo, deleteTodo, getSomeData, getSomeData2 } from "./todos";
+import { getTodos, addTodo, toggleTodo, deleteTodo, getSomeData, getSomeData2, postSomeData } from "./todos";
 import type { Todo } from "./todos";
 import { chat, getChatHistory } from "./chat";
 import { demoWorker } from "./worker-demo";
@@ -235,6 +235,14 @@ function App() {
 		Promise.all([
 			getTodos().then(setTodos),
 			getSomeData().then(setState),
+			postSomeData({ name: globalState.name }, undefined, {
+				headers: {
+					"Content-Type": "application/json",
+				},
+			}).then((e) => {
+				console.log("------------");
+				console.log(e);
+			}),
 			getSomeData2({ id: "user-123" }).then(setHttpData),
 		]).finally(() => {
 			setLoading(false);

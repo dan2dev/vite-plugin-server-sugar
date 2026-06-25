@@ -75,22 +75,42 @@ interface ServerContext<TBody = unknown, TQuery extends Record<string, string> =
   req: ServerContextRequest<TBody, TQuery>;
 }
 
+interface FetchOptions {
+  headers?: Record<string, string>;
+}
+
 declare function $get<TQuery extends Record<string, string>, R>(
   fn: (c: ServerContext<never, TQuery>) => R | Promise<R>,
-): (...args: string extends keyof TQuery ? [query?: Record<string, string>] : [query: TQuery]) => Promise<Awaited<R>>;
+): string extends keyof TQuery
+  ? (query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;
 
 declare function $post<TBody, TQuery extends Record<string, string>, R>(
   fn: (c: ServerContext<TBody, TQuery>) => R | Promise<R>,
-): (...args: string extends keyof TQuery ? [body: TBody, query?: Record<string, string>] : [body: TBody, query: TQuery]) => Promise<Awaited<R>>;
+): string extends keyof TQuery
+  ? (body: TBody, query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (body: TBody, query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;
 
 declare function $put<TBody, TQuery extends Record<string, string>, R>(
   fn: (c: ServerContext<TBody, TQuery>) => R | Promise<R>,
-): (...args: string extends keyof TQuery ? [body: TBody, query?: Record<string, string>] : [body: TBody, query: TQuery]) => Promise<Awaited<R>>;
+): string extends keyof TQuery
+  ? (body: TBody, query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (body: TBody, query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;
 
 declare function $patch<TBody, TQuery extends Record<string, string>, R>(
   fn: (c: ServerContext<TBody, TQuery>) => R | Promise<R>,
-): (...args: string extends keyof TQuery ? [body: TBody, query?: Record<string, string>] : [body: TBody, query: TQuery]) => Promise<Awaited<R>>;
+): string extends keyof TQuery
+  ? (body: TBody, query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (body: TBody, query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;
 
 declare function $delete<TQuery extends Record<string, string>, R>(
   fn: (c: ServerContext<never, TQuery>) => R | Promise<R>,
-): (...args: string extends keyof TQuery ? [query?: Record<string, string>] : [query: TQuery]) => Promise<Awaited<R>>;
+): string extends keyof TQuery
+  ? (query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;
+
+declare function $head<TQuery extends Record<string, string>, R>(
+  fn: (c: ServerContext<never, TQuery>) => R | Promise<R>,
+): string extends keyof TQuery
+  ? (query?: Record<string, string>, options?: FetchOptions) => Promise<Awaited<R>>
+  : (query: TQuery, options?: FetchOptions) => Promise<Awaited<R>>;

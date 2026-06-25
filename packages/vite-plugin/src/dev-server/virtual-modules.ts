@@ -380,7 +380,7 @@ export function loadVirtualModule(
   if (id === RESOLVED_CLIENT_HTTP_HELPER_ID) {
     return {
       code: [
-        `export async function ${CLIENT_HTTP_FETCH_EXPORT}(__method, __endpoint, __body, __query) {`,
+        `export async function ${CLIENT_HTTP_FETCH_EXPORT}(__method, __endpoint, __body, __query, __options) {`,
         `  let __url = __endpoint;`,
         `  if (__query) {`,
         `    const __params = new URLSearchParams(__query);`,
@@ -390,6 +390,9 @@ export function loadVirtualModule(
         `  if (__body !== undefined) {`,
         `    __opts.headers = { 'Content-Type': 'application/json' };`,
         `    __opts.body = JSON.stringify(__body);`,
+        `  }`,
+        `  if (__options && __options.headers) {`,
+        `    __opts.headers = Object.assign(__opts.headers || {}, __options.headers);`,
         `  }`,
         `  const __r = await fetch(__url, __opts);`,
         `  const __text = await __r.text();`,

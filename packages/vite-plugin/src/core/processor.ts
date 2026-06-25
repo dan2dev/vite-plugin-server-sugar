@@ -182,7 +182,7 @@ export function processFile(
   const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
   const workerRegistry = options.workerRegistry;
 
-  if (!/(?:\$server|\$ws|\$worker|\$get|\$post|\$put|\$patch|\$delete)\s*\(/.test(code)) {
+  if (!/(?:\$server|\$ws|\$worker|\$get|\$post|\$put|\$patch|\$delete|\$head)\s*\(/.test(code)) {
     registry.unregisterFile(id);
     wsRegistry.unregisterFile(id);
     workerRegistry?.unregisterFile(id);
@@ -537,8 +537,8 @@ export function processFile(
 
       const url = JSON.stringify(endpointUrl(endpoint));
       const fetchWrapper = HTTP_METHODS_WITH_BODY.has(httpMethod)
-        ? `async (__body, __query) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, __body, __query)`
-        : `async (__query) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, undefined, __query)`;
+        ? `async (__body, __query, __options) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, __body, __query, __options)`
+        : `async (__query, __options) => ${clientHttpFetchHelperName}(${JSON.stringify(httpMethod)}, ${url}, undefined, __query, __options)`;
 
       replacements.push({
         start: call.getStart(sf),

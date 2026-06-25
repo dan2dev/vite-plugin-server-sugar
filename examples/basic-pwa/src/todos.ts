@@ -31,7 +31,7 @@ export const getSomeData = $server(async () => {
 	};
 });
 type PostSomeDataPayload = {
-	name: string
+	name: string;
 };
 
 export const postSomeData = $post(async (c: ServerContext<PostSomeDataPayload>) => {
@@ -40,9 +40,9 @@ export const postSomeData = $post(async (c: ServerContext<PostSomeDataPayload>) 
 });
 
 export const getSomeData2 = $get(async (c: ServerContext<never, { id: string }>) => {
-	const userId = c.req.query('id');
+	const userId = c.req.query("id");
 	console.log(userId);
-	const contentType = c.req.header('Content-Type');
+	const contentType = c.req.header("Content-Type");
 	return { userId, contentType };
 });
 
