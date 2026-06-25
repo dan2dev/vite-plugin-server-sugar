@@ -1,23 +1,13 @@
+// ── serverEntry: custom Hono app with middleware and routes ──
+
 import { Hono } from "hono";
+
 const app = new Hono();
 
-app.get("/custom", (c) => c.text("hello from custom endpoint!"));
-let tootlePAss = 0;
+app.get("/custom", (c) => c.text("Custom Hono endpoint"));
+
 app.all("*", (_c, next) => {
-  console.log("Request received", tootlePAss);
-  // if (tootlePAss > 80) {
-  //   c.status(500);
-  //   return c.json({ message: "Not found!!!" });
-  // }
-  tootlePAss++;
-  return next();
+	return next();
 });
-
-app.post("/", async (c) => {
-  const body = await c.req.json();
-  return c.json(body);
-});
-
-
 
 export default app;

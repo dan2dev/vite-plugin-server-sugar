@@ -1,6 +1,4 @@
-// Demonstrates $worker() — a single shared worker context with multiple methods.
-// All methods run in the same worker thread and share closure state.
-// $server() calls inside the worker work via fetch transparently.
+// ── $worker: shared closure state, calling $server from inside a worker ──
 
 import { getTodos } from "./todos";
 import { getChatHistory } from "./chat";
@@ -14,7 +12,6 @@ export interface WorkerStats {
 }
 
 export const demoWorker = $worker(() => {
-	// Shared state in the worker thread
 	let callCount = 0;
 
 	async function computeStats(): Promise<WorkerStats> {
@@ -30,7 +27,7 @@ export const demoWorker = $worker(() => {
 		};
 	}
 
-	async function computeFibonacci(n: number): Promise<number> {
+	function computeFibonacci(n: number): number {
 		callCount++;
 		function fib(x: number): number {
 			if (x <= 1) return x;

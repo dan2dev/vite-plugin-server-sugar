@@ -1,47 +1,54 @@
-// Demonstrates $ws(), sharing module-level state with a sibling
-// $server() handler from the same file (the connected sockets / history
-// below are a single shared instance across both handler kinds).
+// ── $ws: typed messages, typed connect args, broadcast from sibling $server ──
 
-// Client -> server: what a connected client sends over the wire.
 interface ChatMessage {
-  message: string;
-  name: string;
+	message: string;
 }
 
-// Server -> client: what every connection receives, including broadcasts
-// from the sibling getChatHistory() $server() handler below.
 interface ChatBroadcast {
-  message: string;
-  name: string;
+	message: string;
+	sender: string;
 }
 
-type ChatSocket = ServerWs<ChatBroadcast>;
+type ChatSocket = ServerWs<ChatBroadcast, [username: string]>;
 
 const connections = new Set<ChatSocket>();
-const history: string[] = [];
+const history: ChatBroadcast[] = [];
 
 export const getChatHistory = $server(async () => {
-  chat.send({
-    message: "[testing] someone requested chat history",
-    name: "server",
-  });
-  for (const conn of connections) {
-    conn.send({ message: "[testing] someone joined", name: "server" });
-  }
-  return history;
+	return history;
 });
 
-export const chat = $ws({
-  onOpen(ws: ChatSocket) {
-    connections.add(ws);
-  },
-  onMessage(_ws: ChatSocket, data: ChatMessage) {
-    history.push(data.message);
-    for (const conn of connections) {
-      conn.send(data);
-    }
-  },
-  onClose(ws: ChatSocket) {
-    connections.delete(ws);
-  },
+export const announce = $server(async (text: string) => {
+	const broadcast: ChatBroadcast = { message: text, sender: "system" };
+	history.push(broadcast);
+	chat.send(broadcast);
+});
+
+export const chat = $ws<ChatMessage, ChatBroadcast, [username: string]>({
+	onOpen(ws: ChatSocket) {
+		connections.add(ws);
+		const [username] = ws.args;
+		const broadcast: ChatBroadcast = { message: `${username} joined`, sender: "system" };
+		history.push(broadcast);
+		for (const conn of connections) {
+			conn.send(broadcast);
+		}
+	},
+	onMessage(ws: ChatSocket, data: ChatMessage) {
+		const [username] = ws.args;
+		const broadcast: ChatBroadcast = { message: data.message, sender: username };
+		history.push(broadcast);
+		for (const conn of connections) {
+			conn.send(broadcast);
+		}
+	},
+	onClose(ws: ChatSocket) {
+		connections.delete(ws);
+		const [username] = ws.args;
+		const broadcast: ChatBroadcast = { message: `${username} left`, sender: "system" };
+		history.push(broadcast);
+		for (const conn of connections) {
+			conn.send(broadcast);
+		}
+	},
 });
