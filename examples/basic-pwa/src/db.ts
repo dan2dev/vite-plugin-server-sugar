@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 
 export const db = new Database(":memory:");
 
-db.exec(`
+db.run(`
   CREATE TABLE IF NOT EXISTS todos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT NOT NULL,
@@ -11,7 +11,7 @@ db.exec(`
   )
 `);
 
-db.exec(`
+db.run(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,

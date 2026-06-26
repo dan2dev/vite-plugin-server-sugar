@@ -115,3 +115,4 @@ dist
 *.bun-build
 .kiro/
 .vite/
+.idea/
