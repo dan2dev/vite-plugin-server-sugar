@@ -622,10 +622,11 @@ export function processFile(
         ts.isClassDeclaration(statement) ||
         ts.isInterfaceDeclaration(statement) ||
         ts.isTypeAliasDeclaration(statement) ||
-        ts.isEnumDeclaration(statement) ||
-        ts.isModuleDeclaration(statement)) &&
+        ts.isEnumDeclaration(statement)) &&
       statement.name
     ) {
+      addName(statement.name);
+    } else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name)) {
       addName(statement.name);
     }
 

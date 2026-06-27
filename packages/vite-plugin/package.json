@@ -1,13 +1,18 @@
 {
   "name": "vite-plugin-server-build",
   "version": "0.1.0",
-  "description": "Vite plugin that turns $server() calls into type-safe API endpoints bundled with Bun.",
+  "description": "Vite-first plugin that turns $server() calls into type-safe API endpoints bundled with Bun, with build-only Rollup and Rolldown entrypoints.",
+  "$schema": "https://raw.githubusercontent.com/vitejs/vite-plugin-registry/refs/heads/main/data/schema/extended-package-json.schema.json",
   "author": "Danilo Castro <duocraft.tech@gmail.com>",
   "license": "MIT",
   "type": "module",
   "keywords": [
     "vite-plugin",
+    "rollup-plugin",
+    "rolldown-plugin",
     "vite",
+    "rollup",
+    "rolldown",
     "bun",
     "server-functions",
     "server",
@@ -25,6 +30,14 @@
     ".": {
       "import": "./dist/index.mjs",
       "types": "./dist/index.d.mts"
+    },
+    "./rollup": {
+      "import": "./dist/rollup.mjs",
+      "types": "./dist/rollup.d.mts"
+    },
+    "./rolldown": {
+      "import": "./dist/rolldown.mjs",
+      "types": "./dist/rolldown.d.mts"
     },
     "./server": {
       "types": "./server.d.ts"
@@ -57,24 +70,55 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "rolldown": "^1.1.1",
+    "rolldown": "^1.1.3",
     "typescript": "^6.0.3",
-    "ws": "^8.18.0"
+    "ws": "^8.21.0"
   },
   "peerDependencies": {
     "hono": ">=4.0.0",
+    "rollup": ">=4.0.0",
+    "rolldown": ">=1.0.0",
     "vite": ">=6.0.0"
   },
+  "peerDependenciesMeta": {
+    "rollup": {
+      "optional": true
+    },
+    "rolldown": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "compatiblePackages": {
+    "schemaVersion": 1,
+    "vite": {
+      "type": "compatible",
+      "versions": ">=6.0.0",
+      "note": "Primary integration. The default entrypoint includes Vite config, dev-server middleware, HMR invalidation, and production server generation."
+    },
+    "rollup": {
+      "type": "compatible",
+      "versions": ">=4.0.0",
+      "note": "Use vite-plugin-server-build/rollup. Rollup support is build-only; Vite dev-server middleware and HMR are not available."
+    },
+    "rolldown": {
+      "type": "compatible",
+      "versions": ">=1.0.0",
+      "note": "Use vite-plugin-server-build/rolldown. Rolldown support is build-only; Vite dev-server middleware and HMR are not available."
+    }
+  },
   "devDependencies": {
-    "@types/node": "^22.19.21",
+    "@types/node": "^22.20.0",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.9",
     "bumpp": "^11.1.0",
     "bun-types": "^1.3.14",
     "fast-check": "^4.8.0",
-    "hono": "^4.7.4",
-    "tsdown": "^0.22.2",
-    "vite": "^8.0.16",
+    "hono": "^4.12.27",
+    "tsdown": "^0.22.3",
+    "vite": "^8.1.0",
     "vitest": "^4.1.9"
   }
 }

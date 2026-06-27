@@ -1,6 +1,10 @@
 # vite-plugin-server-build
 
-A Vite plugin that turns `$server()` and `$ws()` calls written inline in
+![Vite compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=vite)
+![Rollup compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=rollup)
+![Rolldown compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=rolldown)
+
+A Vite-first plugin that turns `$server()` and `$ws()` calls written inline in
 your frontend source into type-safe server endpoints. In the browser bundle the
 calls become `fetch()` or `WebSocket` clients; on the server the original
 functions and handlers run inside a generated Bun + Hono application.
@@ -69,7 +73,9 @@ npm install vite-plugin-server-build hono
 bun add vite-plugin-server-build hono
 ```
 
-Requires Vite `>=6.0.0`. The generated production server runs on Bun, and
+Requires Vite `>=6.0.0` for the primary integration. Build-only Rollup
+`>=4.0.0` and Rolldown `>=1.0.0` entrypoints are also provided for projects
+that are not using Vite's dev server. The generated production server runs on Bun, and
 projects that use Bun-only APIs in handlers should run Vite under Bun as well
 for dev/build parity, for example `bunx --bun vite` and
 `bunx --bun vite build`.
@@ -77,6 +83,8 @@ for dev/build parity, for example `bunx --bun vite` and
 `hono` is a **peer dependency**. It must be installed in your project even if you don't provide a custom `serverEntry`, as the generated production server and dev-mode augmentation rely on it.
 
 ## Setup
+
+### Vite (primary)
 
 **`vite.config.ts`**
 
@@ -94,6 +102,43 @@ export default defineConfig({
   ],
 });
 ```
+
+### Rollup / Rolldown (build-only)
+
+The default `vite-plugin-server-build` entrypoint is the supported and most
+feature-complete integration. It includes Vite config handling, dev-server
+middleware, WebSocket upgrades, and HMR invalidation.
+
+For pure Rollup or pure Rolldown builds, use the explicit build-only subpath
+entrypoints:
+
+```ts
+// rollup.config.ts
+import serverBuild from "vite-plugin-server-build/rollup";
+
+export default {
+  input: "src/main.ts",
+  output: { dir: "dist/client", format: "esm" },
+  plugins: [serverBuild({ port: 3001 })],
+};
+```
+
+```ts
+// rolldown.config.ts
+import serverBuild from "vite-plugin-server-build/rolldown";
+
+export default {
+  input: "src/main.ts",
+  output: { dir: "dist/client", format: "esm" },
+  plugins: [serverBuild({ port: 3001 })],
+};
+```
+
+Rollup/Rolldown compatibility is intentionally **build-only**: these entrypoints
+share the transform, virtual module, worker chunk, and production server
+generation hooks, but they do not provide Vite dev-server middleware or HMR.
+Use `output.dir: "dist/client"` if you want the same `dist/client` +
+`dist/server` layout as Vite.
 
 **`tsconfig.json`**
 
@@ -266,7 +311,7 @@ plugin emits a warning during scans/watch updates.
 
 ## Development Mode
 
-The plugin uses Vite's standard plugin lifecycle:
+The Vite entrypoint uses Vite's standard plugin lifecycle:
 
 - `config` forces the client build output into a `client` directory under the
   configured `dist` root and defaults the dev server port to `port`.

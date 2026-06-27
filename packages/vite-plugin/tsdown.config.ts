@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/rollup.ts', 'src/rolldown.ts'],
   deps: {
     neverBundle: ['vite', 'typescript', 'rolldown'],
   },
