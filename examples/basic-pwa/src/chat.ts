@@ -10,7 +10,6 @@ interface ChatBroadcast {
 }
 
 type ChatSocket = ServerWs<ChatBroadcast, [username: string]>;
-
 const connections = new Set<ChatSocket>();
 const history: ChatBroadcast[] = [];
 
