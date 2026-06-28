@@ -44,6 +44,14 @@ Types are inferred from the function or handler you pass to the macro.
 - Security reporting: [SECURITY.md](../../SECURITY.md)
 - Release notes: [CHANGELOG.md](../../CHANGELOG.md)
 
+## Documentation
+
+- [Getting started](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/getting-started.md)
+- [Macro reference](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/macros.md)
+- [Configuration reference](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/configuration.md)
+- [Runtime and deployment](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/runtime-and-deployment.md)
+- [Troubleshooting](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/troubleshooting.md)
+
 ## Features
 
 - Type-safe server functions with `$server()`.

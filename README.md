@@ -44,6 +44,14 @@ Types are inferred from the function or handler you pass to the macro.
 - Security reporting: [SECURITY.md](./SECURITY.md)
 - Release notes: [CHANGELOG.md](./CHANGELOG.md)
 
+## Documentation
+
+- [Getting started](./docs/getting-started.md)
+- [Macro reference](./docs/macros.md)
+- [Configuration reference](./docs/configuration.md)
+- [Runtime and deployment](./docs/runtime-and-deployment.md)
+- [Troubleshooting](./docs/troubleshooting.md)
+
 ## Features
 
 - Type-safe server functions with `$server()`.
