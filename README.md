@@ -3,7 +3,6 @@
 ![Vite compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=vite)
 ![Rollup compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rollup)
 ![Rolldown compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rolldown)
-[![OpenSSF Baseline](https://www.bestpractices.dev/projects/13422/baseline)](https://www.bestpractices.dev/projects/13422)
 
 `vite-plugin-server-sugar` lets you keep small server features next to your
 client code in a Vite app.
