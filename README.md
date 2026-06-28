@@ -35,6 +35,15 @@ await addTodo("Write docs");
 There is no route file, schema file, or separate code generation command.
 Types are inferred from the function or handler you pass to the macro.
 
+## Project Links
+
+- Package: https://www.npmjs.com/package/vite-plugin-server-sugar
+- Source: https://github.com/dan2dev/vite-plugin-server-sugar
+- Issues and enhancements: https://github.com/dan2dev/vite-plugin-server-sugar/issues
+- Contributing: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Security reporting: [SECURITY.md](./SECURITY.md)
+- Release notes: [CHANGELOG.md](./CHANGELOG.md)
+
 ## Features
 
 - Type-safe server functions with `$server()`.

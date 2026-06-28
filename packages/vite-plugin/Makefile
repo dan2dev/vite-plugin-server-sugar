@@ -32,7 +32,7 @@ build:
 	@bun run build
 
 pack-dry-run: build
-	@npm pack --dry-run
+	@npm --cache .npm-cache pack --dry-run
 
 check: typecheck test pack-dry-run
 
@@ -43,7 +43,7 @@ publish:
 	@echo "==> Building $(PKG_NAME)"
 	@bun run build
 	@echo "==> Inspecting package contents"
-	@npm pack --dry-run
+	@npm --cache .npm-cache pack --dry-run
 	@echo "==> Logging in to npm registry"
 	@if ! npm login; then \
 		echo "ERROR: npm login failed. Cannot proceed with publish."; \

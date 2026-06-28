@@ -60,6 +60,7 @@
   "scripts": {
     "build": "tsdown && cp server.d.ts dist/server.d.ts && cp ws.d.ts dist/ws.d.ts && cp worker.d.ts dist/worker.d.ts",
     "build:watch": "tsdown --watch",
+    "check": "bun run typecheck && bun run test && bun run build",
     "dev": "tsdown --watch",
     "test": "vitest --run",
     "test:watch": "vitest",

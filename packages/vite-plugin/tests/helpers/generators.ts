@@ -13,12 +13,92 @@ export type RegistryOp =
 
 // --- Primitive generators ---
 
+const reservedIdentifierNames = new Set([
+  'abstract',
+  'any',
+  'as',
+  'asserts',
+  'async',
+  'await',
+  'bigint',
+  'boolean',
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'constructor',
+  'continue',
+  'debugger',
+  'declare',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'enum',
+  'export',
+  'extends',
+  'false',
+  'finally',
+  'for',
+  'from',
+  'function',
+  'get',
+  'if',
+  'implements',
+  'import',
+  'in',
+  'infer',
+  'instanceof',
+  'interface',
+  'keyof',
+  'let',
+  'module',
+  'namespace',
+  'never',
+  'new',
+  'null',
+  'number',
+  'object',
+  'of',
+  'package',
+  'private',
+  'protected',
+  'public',
+  'readonly',
+  'require',
+  'return',
+  'satisfies',
+  'set',
+  'static',
+  'string',
+  'super',
+  'switch',
+  'symbol',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'type',
+  'typeof',
+  'undefined',
+  'unique',
+  'unknown',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+]);
+
 /**
- * Generates valid JavaScript identifier names.
- * Starts with a letter or underscore, followed by alphanumeric or underscores.
+ * Generates TypeScript identifier names that are safe in declaration and label
+ * positions used by the property tests.
  */
 export function arbIdentifierName(): fc.Arbitrary<string> {
-  return fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,14}$/);
+  return fc
+    .stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,14}$/)
+    .filter((name) => !reservedIdentifierNames.has(name));
 }
 
 /**

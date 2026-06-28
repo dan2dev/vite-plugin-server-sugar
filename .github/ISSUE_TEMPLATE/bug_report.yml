@@ -1,0 +1,40 @@
+name: Bug report
+description: Report incorrect behavior in vite-plugin-server-sugar
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Package version
+      description: The vite-plugin-server-sugar version you are using.
+      placeholder: "0.1.2"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Bun, Vite/Rollup/Rolldown, Node, and operating system versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Link a minimal reproduction or paste the smallest code sample that demonstrates the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
