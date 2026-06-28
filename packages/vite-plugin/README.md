@@ -4,10 +4,12 @@
 ![Rollup compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rollup)
 ![Rolldown compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rolldown)
 
-Write server functions, HTTP handlers, WebSockets, and Web Workers inline in
-your Vite app. `vite-plugin-server-sugar` turns compile-time macros like
-`$server()` and `$ws()` into browser-safe clients, then emits a Bun + Hono
-server that runs the original server code.
+`vite-plugin-server-sugar` lets you keep small server features next to your
+client code in a Vite app.
+
+It recognizes compile-time macros such as `$server()` and `$ws()`, replaces
+them with browser-safe clients, and emits a production Bun + Hono server that
+runs the original server code.
 
 ```ts
 // src/todos.ts
@@ -27,24 +29,22 @@ export const addTodo = $server(async (text: string) => {
 import { addTodo, getTodos } from "./todos";
 
 const todos = await getTodos();
-await addTodo("Ship the README");
+await addTodo("Write docs");
 ```
 
-There is no route file, schema file, or separate codegen command. The macros
-preserve TypeScript argument and return types on the client, while server-only
-imports used only inside handlers are removed from the browser bundle.
+There is no route file, schema file, or separate code generation command.
+Types are inferred from the function or handler you pass to the macro.
 
 ## Features
 
-- Type-safe inline RPC with `$server()`.
-- REST-shaped handlers with `$get()`, `$post()`, `$put()`, `$patch()`,
+- Type-safe server functions with `$server()`.
+- HTTP method handlers with `$get()`, `$post()`, `$put()`, `$patch()`,
   `$delete()`, and `$head()`.
-- Typed WebSockets with `$ws()`, including server-to-client broadcast from
-  sibling handlers.
-- Dedicated Web Workers with `$worker()` and typed async method proxies.
+- Typed WebSockets with `$ws()`.
+- Dedicated Web Workers with `$worker()`.
 - Optional custom Hono app through `serverEntry`.
-- Vite dev-server integration, HMR invalidation, and production server
-  generation.
+- Vite dev-server middleware, WebSocket upgrades, and HMR invalidation.
+- Production server generation for Bun.
 - Build-only Rollup and Rolldown entrypoints.
 
 ## Install
@@ -57,17 +57,23 @@ npm install vite-plugin-server-sugar hono
 bun add vite-plugin-server-sugar hono
 ```
 
-`hono` is a peer dependency. The generated production server runs on Bun. If
-your handlers use Bun-only APIs, run Vite through Bun as well so development
-and production have the same runtime behavior:
+`hono` is a peer dependency. The generated production server uses Bun runtime
+APIs, so run it with Bun:
+
+```bash
+bun dist/server/server.mjs
+```
+
+If your handlers import Bun-only modules such as `bun:sqlite`, run Vite with
+Bun too:
 
 ```bash
 bunx --bun vite
 bunx --bun vite build
 ```
 
-The primary integration expects Vite `>=6.0.0`. Build-only Rollup `>=4.0.0`
-and Rolldown `>=1.0.0` entrypoints are also available.
+The Vite integration expects Vite `>=6.0.0`. Rollup `>=4.0.0` and Rolldown
+`>=1.0.0` are supported for build-only usage through explicit subpaths.
 
 ## Setup
 
@@ -88,7 +94,7 @@ export default defineConfig({
 });
 ```
 
-Register the ambient macro types in `tsconfig.json`:
+Register the macro types in `tsconfig.json`:
 
 ```json
 {
@@ -102,14 +108,13 @@ Register the ambient macro types in `tsconfig.json`:
 }
 ```
 
-The macros are compile-time markers. Do not import `$server`, `$ws`,
+The macros are ambient compile-time globals. Do not import `$server`, `$ws`,
 `$worker`, or the HTTP method helpers from the package.
 
 ## Server Functions
 
-Use `$server()` for typed RPC-style calls. The client calls a generated
-`POST /__server-build/<endpoint>` endpoint; the server runs the original
-function.
+Use `$server()` for typed RPC-style calls. The client receives an async
+function. The server runs the original function.
 
 ```ts
 // src/user.ts
@@ -124,19 +129,17 @@ export const renameUser = $server(async (id: string, name: string) => {
 });
 ```
 
-```tsx
+```ts
 const user = await getUser("u_123");
 await renameUser("u_123", "Ada");
 ```
 
-Values that cross the wire should be JSON-serializable. TypeScript inference is
-compile-time only; the plugin does not add runtime schema validation.
+Values passed between browser and server should be JSON-serializable. The
+plugin preserves TypeScript types at compile time, but it does not add runtime
+schema validation.
 
-### Shared State And Sibling Calls
-
-Top-level values referenced by handlers are captured into a shared per-file
-server scope. Sibling handlers in the same file can call each other and share
-state.
+Top-level state referenced by handlers is emitted into a shared per-file server
+scope. Sibling handlers in the same file can call each other and share state.
 
 ```ts
 let requestCount = 0;
@@ -148,21 +151,18 @@ export const countRequest = $server(() => {
 
 export const getStatus = $server(async () => {
   return {
-    requests: await countRequest(),
+    requests: countRequest(),
     uptime: process.uptime(),
   };
 });
 ```
 
-## HTTP Method Helpers
+## HTTP Handlers
 
-Use the HTTP helpers when you want method-specific handlers with a small
+Use HTTP method helpers when you want method-specific endpoints and a
 Hono-compatible context object.
 
 ```ts
-// src/todos.ts
-import { db } from "./db";
-
 export const listTodos = $get(async (c) => {
   const limit = c.req.query("limit");
   return db.query("SELECT * FROM todos LIMIT ?").all(Number(limit ?? "50"));
@@ -170,8 +170,7 @@ export const listTodos = $get(async (c) => {
 
 export const getTodo = $get(
   async (c: ServerContext<never, { id: string }>) => {
-    const id = c.req.query("id");
-    return db.query("SELECT * FROM todos WHERE id = ?").get(id);
+    return db.query("SELECT * FROM todos WHERE id = ?").get(c.req.query("id"));
   },
 );
 
@@ -192,8 +191,21 @@ await createTodo({ text: "Write docs" });
 ```
 
 Typed query objects make the client query argument required. Untyped query
-objects are optional. `$post()`, `$put()`, and `$patch()` take the body first,
-then an optional query object, then optional fetch headers.
+objects are optional.
+
+`$post()`, `$put()`, and `$patch()` take:
+
+```ts
+body, optionalQuery, optionalFetchOptions
+```
+
+`$get()`, `$delete()`, and `$head()` take:
+
+```ts
+optionalQuery, optionalFetchOptions
+```
+
+Fetch options currently support request headers:
 
 ```ts
 await createTodo(
@@ -203,13 +215,12 @@ await createTodo(
 );
 ```
 
-Handlers may return plain JSON-serializable values, `undefined`, or a
-`Response`. Returning `undefined` sends `204 No Content`.
+Handlers may return JSON-serializable values, `undefined`, or a `Response`.
+Returning `undefined` sends `204 No Content`.
 
 ## WebSockets
 
-Use `$ws()` for persistent connections. Message types are inferred from handler
-annotations, or can be supplied explicitly.
+Use `$ws()` for persistent connections.
 
 ```ts
 // src/chat.ts
@@ -242,16 +253,15 @@ conn.onMessage((message) => {
 conn.send({ text: "hello" });
 ```
 
-On the client, `.connect(...args)` opens a `WebSocket`, `.send(data)` sends
-JSON, `.onMessage(cb)` receives parsed messages, and `.close()` closes the
-socket. On the server, `ws.args` contains the connection arguments and
-`chat.send(data)` broadcasts to open sockets for that endpoint.
+Client connections expose `.send(data)`, `.onMessage(cb)`, `.onClose(cb)`,
+`.close()`, and `.readyState`. Server handlers receive `ws.args` from
+`connect(...args)`. Calling `chat.send(data)` from a sibling handler broadcasts
+to every open connection for that endpoint.
 
 ## Web Workers
 
-Use `$worker()` to create a dedicated module worker with typed async method
-proxies. The factory runs once inside the worker, so closure state is shared
-across method calls.
+Use `$worker()` to create a dedicated module worker. The factory runs once
+inside the worker, and the returned methods become async client proxies.
 
 ```ts
 // src/stats-worker.ts
@@ -278,13 +288,15 @@ export const statsWorker = $worker(() => {
 const stats = await statsWorker.summarize();
 ```
 
-`$server()` and `$ws()` wrappers can be called from inside workers because
-`fetch` and `WebSocket` are available in Web Workers.
+Same-file `$server()` and `$ws()` siblings referenced by a worker are replaced
+with client stubs inside the worker module, so server calls and WebSocket
+connections work from the worker thread.
 
 ## Custom Hono App
 
-Use `serverEntry` when you want custom routes or middleware alongside generated
-endpoints. Export a Hono app as the default export or as a named `app` export.
+Use `serverEntry` when you want custom routes or middleware alongside the
+generated endpoints. Export a Hono app as the default export or as a named
+`app` export.
 
 ```ts
 // src/server.ts
@@ -300,22 +312,22 @@ app.use("*", async (_c, next) => {
 export default app;
 ```
 
-In dev mode, generated API routes are mounted into this app through Vite SSR.
-In production, the generated Bun server uses the same Hono app before serving
-static client assets.
+In dev and production, generated server endpoints are mounted into the Hono
+app. WebSocket upgrades are handled separately because Hono does not process
+the raw WebSocket upgrade.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `port` | `number` | `3001` | Dev server port default and production fallback port. Production can override it with `PORT`. |
+| `port` | `number` | `3001` | Dev-server port default and production fallback port. Production can override it with `PORT`. |
 | `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. |
 | `compile` | `boolean` | `false` | Also compile standalone Bun executables for supported Bun targets after emitting `dist/server/server.mjs`. |
 
 ## Build Output
 
-`vite build` writes the client build to `dist/client` and emits the generated
-server to `dist/server/server.mjs`.
+With Vite, the plugin changes the client output directory to `dist/client` and
+writes the generated server to `dist/server/server.mjs`.
 
 ```txt
 dist/
@@ -332,8 +344,8 @@ Run the generated server with Bun:
 bun dist/server/server.mjs
 ```
 
-When `compile: true`, the plugin also emits standalone Bun executables for the
-supported Bun targets under `dist/server/`.
+When `compile: true`, standalone Bun executables are also emitted under
+`dist/server/`.
 
 ## Endpoint Names
 
@@ -356,7 +368,7 @@ export const api = {
 };
 ```
 
-If the plugin cannot infer a natural name, it falls back to a line/column
+If the plugin cannot infer a natural label, it falls back to a line/column
 label. Duplicate endpoint names in the same file get a line/column suffix.
 
 ## Runtime Contracts
@@ -368,7 +380,7 @@ label. Duplicate endpoint names in the same file get a line/column suffix.
 - Body: JSON array of function arguments. A non-array JSON value is passed as
   one argument.
 - Success: JSON response, `204` for `undefined`, or the returned `Response`.
-- Errors: `404` unknown endpoint, `405` wrong method, `415` unsupported content
+- Errors: `404` unknown endpoint, `405` wrong method, `415` unsupported media
   type, `400` invalid JSON or bad URL encoding, `500` handler exception.
 
 HTTP helper endpoints:
@@ -383,19 +395,20 @@ HTTP helper endpoints:
 
 - Path: `/__server-build-ws/<endpoint>`.
 - `connect(...args)` serializes connection args into the WebSocket URL.
-- Messages sent through the generated wrappers are JSON-serialized.
-- Incoming messages are JSON-parsed when possible and fall back to raw data.
+- Messages sent through generated wrappers are JSON-serialized.
+- Incoming messages are JSON-parsed when possible and otherwise passed through
+  as raw data.
 
-Client wrappers read the response text, throw `Error(message)` for non-2xx
+Client wrappers read response text, throw `Error(message)` for non-2xx
 responses, and parse successful non-empty responses as JSON.
 
 ## Rollup And Rolldown
 
-The default Vite entrypoint is the most complete integration. It includes Vite
-config handling, dev-server middleware, WebSocket upgrades, HMR invalidation,
+The default Vite entrypoint is the complete integration. It includes config
+handling, dev middleware, WebSocket upgrades, HMR invalidation, worker chunks,
 and production server generation.
 
-For build-only Rollup or Rolldown usage, import the explicit subpath:
+For build-only Rollup or Rolldown usage, import an explicit subpath:
 
 ```ts
 // rollup.config.ts
@@ -420,13 +433,13 @@ export default {
 ```
 
 Rollup and Rolldown entrypoints share the transform, virtual modules, worker
-chunks, and production server generation hooks, but they do not provide Vite
+chunks, and production server generation hooks. They do not provide Vite
 dev-server middleware or HMR.
 
 ## Examples
 
 The repository includes a Vite example app at
-[`examples/basic-pwa`](../../examples/basic-pwa) covering `$server`, HTTP
+[`examples/basic-pwa`](../../examples/basic-pwa). It covers `$server`, HTTP
 method helpers, `$ws`, `$worker`, custom Hono routes, shared state, and edge
 cases.
 
@@ -438,10 +451,16 @@ Install dependencies:
 bun install
 ```
 
-Run the test suite:
+Run tests:
 
 ```bash
 bun run test
+```
+
+Run type checks:
+
+```bash
+bun run typecheck
 ```
 
 Build the package:
@@ -450,5 +469,4 @@ Build the package:
 bun run build
 ```
 
-For maintainer-level implementation notes, see
-[`ARCHITECTURE.md`](./ARCHITECTURE.md).
+For implementation notes, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
