@@ -11,7 +11,8 @@ export default defineConfig({
     serverBuildPlugin({
       port: 3001,
       serverEntry: 'src/server.ts',
-      compile: true,
+			compile: true,
+      pathnameBase: 'sugar_api'
     }),
   ],
 })
