@@ -5,7 +5,6 @@ import { Registry } from "./registry";
 import { transpileTs, transpileStatements } from "./transpiler";
 import type { ServerEntry, RuntimeImport, WsEntry, WorkerEntry } from "../types";
 import {
-  API_PREFIX,
   CLIENT_FETCH_EXPORT,
   CLIENT_HELPER_ID,
   CLIENT_HTTP_FETCH_EXPORT,
@@ -15,8 +14,11 @@ import {
   CLIENT_WORKER_HELPER_ID,
   CLIENT_WORKER_PROXY_EXPORT,
   VIRTUAL_WORKER_PREFIX,
-  WS_API_PREFIX,
 } from "../constants";
+import {
+  createEndpointPaths,
+  endpointUrl as endpointUrlForPrefix,
+} from "../endpoint-paths";
 import { HTTP_METHOD_MACROS, HTTP_METHODS_WITH_BODY } from "../types";
 import { normalizePath } from "../utils/path";
 import { toKebabCase } from "../utils/crypto";
@@ -166,6 +168,7 @@ export interface ProcessorOptions {
    * parameters, locals, or known globals).
    */
   emitWarnings?: boolean;
+  endpointPaths?: ReturnType<typeof createEndpointPaths>;
 }
 
 export interface ProcessResult {
@@ -181,6 +184,7 @@ export function processFile(
   const { registry, root } = options;
   const wsRegistry = options.wsRegistry ?? new Registry<WsEntry>();
   const workerRegistry = options.workerRegistry;
+  const endpointPaths = options.endpointPaths ?? createEndpointPaths();
 
   if (!/(?:\$server|\$ws|\$worker|\$get|\$post|\$put|\$patch|\$delete|\$head)\s*\(/.test(code)) {
     registry.unregisterFile(id);
@@ -232,11 +236,11 @@ export function processFile(
   }
 
   function endpointUrl(endpoint: string): string {
-    return API_PREFIX + endpoint.split("/").map(encodeURIComponent).join("/");
+    return endpointUrlForPrefix(endpointPaths.apiPrefix, endpoint);
   }
 
   function wsEndpointUrl(endpoint: string): string {
-    return WS_API_PREFIX + endpoint.split("/").map(encodeURIComponent).join("/");
+    return endpointUrlForPrefix(endpointPaths.wsPrefix, endpoint);
   }
 
   function collectRuntimeImports(usedNames: Set<string>): RuntimeImport[] {

@@ -20,7 +20,7 @@ calls during bundling.
 Client output:
 
 - `$server()` becomes an async function that posts to
-  `/__server-build/<endpoint>`.
+  `/{pathnameBase}/<endpoint>`, defaulting to `/__server-build/<endpoint>`.
 - HTTP method helpers become async functions that call the same endpoint path
   with the matching HTTP method.
 - `$ws()` becomes an object with `connect(...args)`.
@@ -137,7 +137,7 @@ The Vite entrypoint wires these hooks:
 
 Dev HTTP handling has two modes:
 
-- Without `serverEntry`, the plugin handles `/__server-build/*` directly in
+- Without `serverEntry`, the plugin handles `/{pathnameBase}/*` directly in
   Vite middleware.
 - With `serverEntry`, the configured Hono app is loaded through Vite SSR and
   generated routes are mounted into it. This lets user middleware run for
@@ -226,8 +226,8 @@ Steps:
 The generated server:
 
 - imports or creates a Hono app,
-- registers generated API handlers under `/__server-build/*`,
-- handles WebSocket upgrades under `/__server-build-ws/*` when needed,
+- registers generated API handlers under `/{pathnameBase}/*`,
+- handles WebSocket upgrades under `/{pathnameBase}-ws/*` when needed,
 - serves static files from `dist/client`,
 - falls back to `index.html` for SPA routes,
 - reads `PORT` from the environment and falls back to the configured `port`.
@@ -236,7 +236,8 @@ The generated server:
 
 Server and HTTP endpoints:
 
-- Generated API path: `/__server-build/<endpoint>`.
+- Generated API path: `/{pathnameBase}/<endpoint>`, defaulting to
+  `/__server-build/<endpoint>`.
 - `$server()` uses `POST` with a JSON array of function arguments.
 - HTTP helpers use their matching method and receive a Hono-compatible
   context.
@@ -246,7 +247,8 @@ Server and HTTP endpoints:
 
 WebSocket endpoints:
 
-- Generated path: `/__server-build-ws/<endpoint>`.
+- Generated path: `/{pathnameBase}-ws/<endpoint>`, defaulting to
+  `/__server-build-ws/<endpoint>`.
 - `connect(...args)` stores args in the WebSocket URL.
 - Server handlers read those args from `ws.args`.
 - Wrapper sends are JSON-serialized.

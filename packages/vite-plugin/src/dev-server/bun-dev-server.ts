@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Registry } from '../core/registry';
 import type { ServerEntry } from '../types';
 import { renderRuntimeImport } from './virtual-modules';
-import { API_PREFIX } from '../constants';
+import { createEndpointPaths } from '../endpoint-paths';
 import { hasRequestBody, headersFromNode, readNodeBody, requestUrl, writeWebResponse } from './middleware';
 
 export class BunDevServer {
@@ -18,6 +18,7 @@ export class BunDevServer {
     private readonly port: number,
     private readonly serverEntryPath: string | null,
     cacheDir: string,
+    private readonly apiPrefix = createEndpointPaths().apiPrefix,
   ) {
     mkdirSync(cacheDir, { recursive: true });
     this.scriptPath = join(cacheDir, 'server-dev-server.ts');
@@ -99,13 +100,13 @@ export class BunDevServer {
       `  async fetch(req: Request): Promise<Response> {`,
       `    const url = new URL(req.url);`,
       `    const p = url.pathname;`,
-      `    if (p.startsWith(${JSON.stringify(API_PREFIX)})) {`,
+      `    if (p.startsWith(${JSON.stringify(this.apiPrefix)})) {`,
       `      if (req.method !== 'POST') {`,
       `        return new Response(JSON.stringify({ error: 'Method not allowed' }), {`,
       `          status: 405, headers: { 'Content-Type': 'application/json', Allow: 'POST' }`,
       `        });`,
       `      }`,
-      `      const endpoint = decodeURIComponent(p.slice(${API_PREFIX.length}));`,
+      `      const endpoint = decodeURIComponent(p.slice(${this.apiPrefix.length}));`,
       `      const handler = __handlers[endpoint];`,
       `      if (!handler) {`,
       `        return new Response(JSON.stringify({ error: \`No handler: \${endpoint}\` }), {`,

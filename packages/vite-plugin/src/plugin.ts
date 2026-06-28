@@ -27,7 +27,6 @@ import { setupWsUpgrade } from "./dev-server/ws-upgrade";
 import { generateBundleContent } from "./build/bundle-generator";
 import { bundleServerSource, compileServer } from "./build/bundler";
 import {
-  API_PREFIX,
   RESOLVED_CLIENT_HELPER_ID,
   RESOLVED_CLIENT_HTTP_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
@@ -39,6 +38,7 @@ import {
   VIRTUAL_PREFIX,
   VIRTUAL_WORKER_PREFIX,
 } from "./constants";
+import { createEndpointPaths } from "./endpoint-paths";
 import { normalizePath } from "./utils/path";
 
 export type ServerBuildPluginHost = "vite" | "rollup" | "rolldown";
@@ -79,6 +79,7 @@ export function createServerBuildPlugin(
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
   const compile = options.compile === true;
+  const endpointPaths = createEndpointPaths(options.pathnameBase);
   const registry = new Registry<ServerEntry>();
   const wsRegistry = new Registry<WsEntry>();
   const workerRegistry = new Registry<WorkerEntry>();
@@ -141,6 +142,7 @@ export function createServerBuildPlugin(
           workerRegistry,
           root,
           emitWarnings: true,
+          endpointPaths,
         });
       }
     }
@@ -233,7 +235,7 @@ export function createServerBuildPlugin(
         );
       }
 
-      setupWsUpgrade(server, wsRegistry);
+      setupWsUpgrade(server, wsRegistry, endpointPaths.wsPrefix);
 
       if (serverEntry) {
         // Track Hono app instances that have already been augmented with
@@ -259,12 +261,12 @@ export function createServerBuildPlugin(
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const hono = app as any;
 
-              hono.all(`${API_PREFIX}*`, async (c: any) => {
+              hono.all(`${endpointPaths.apiPrefix}*`, async (c: any) => {
                 const url = new URL(c.req.url);
                 let endpoint: string;
                 try {
                   endpoint = decodeURIComponent(
-                    url.pathname.slice(API_PREFIX.length),
+                    url.pathname.slice(endpointPaths.apiPrefix.length),
                   );
                 } catch {
                   return c.json({ error: "Bad request" }, 400);
@@ -338,7 +340,10 @@ export function createServerBuildPlugin(
             // paths, a 404 means Hono didn't handle the request so we
             // fall through to Vite's internal middleware (source files,
             // HMR, etc.).
-            if (response.status === 404 && !pathname.startsWith(API_PREFIX)) {
+            if (
+              response.status === 404 &&
+              !pathname.startsWith(endpointPaths.apiPrefix)
+            ) {
               return next();
             }
 
@@ -357,11 +362,13 @@ export function createServerBuildPlugin(
         // (no user Hono app to route them through).
         server.middlewares.use(async (req: any, res: any, next: any) => {
           const pathname = requestUrl(req).pathname;
-          if (!pathname.startsWith(API_PREFIX)) return next();
+          if (!pathname.startsWith(endpointPaths.apiPrefix)) return next();
 
           let endpoint: string;
           try {
-            endpoint = decodeURIComponent(pathname.slice(API_PREFIX.length));
+            endpoint = decodeURIComponent(
+              pathname.slice(endpointPaths.apiPrefix.length),
+            );
           } catch {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Bad request" }));
@@ -391,6 +398,7 @@ export function createServerBuildPlugin(
               workerRegistry,
               root,
               emitWarnings: true,
+              endpointPaths,
             });
             invalidateServerModules(server, [
               ...previousEndpoints,
@@ -454,6 +462,7 @@ export function createServerBuildPlugin(
         workerRegistry,
         workerReferenceIds: command === "build" ? workerReferenceIds : undefined,
         root,
+        endpointPaths,
       });
     },
 
@@ -482,6 +491,7 @@ export function createServerBuildPlugin(
         clientOutDir,
         port,
         wsRegistry,
+        endpointPaths,
       );
       if (!content) return;
 

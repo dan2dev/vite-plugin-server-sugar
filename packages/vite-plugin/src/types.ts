@@ -104,6 +104,11 @@ export interface WorkerEntry {
 export interface ServerBuildPluginOptions {
   /** Port for the generated production Bun server. Default: 3001 */
   port?: number;
+  /**
+   * Base pathname for generated server endpoints. Default: "/__server-build".
+   * A value like "/api/rpc" mounts endpoints at "/api/rpc/<endpoint>".
+   */
+  pathnameBase?: string;
   /** Hono app entry point for custom endpoints. */
   serverEntry?: string;
   /**

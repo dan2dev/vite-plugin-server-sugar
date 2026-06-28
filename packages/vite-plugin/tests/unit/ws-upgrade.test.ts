@@ -79,6 +79,30 @@ function setupWithRegistry(wsRegistry: Registry<WsEntry>): {
   return { server, triggerUpgrade };
 }
 
+function setupWithRegistryAndPrefix(wsRegistry: Registry<WsEntry>, wsPrefix: string): {
+  server: ViteDevServer;
+  triggerUpgrade: (req: IncomingMessage, socket: Duplex, head: Buffer) => void;
+} {
+  const httpServer = new EventEmitter();
+  const server = {
+    httpServer,
+    ssrLoadModule: vi.fn().mockResolvedValue({
+      default: { onOpen: vi.fn() },
+    }),
+  } as unknown as ViteDevServer;
+
+  setupWsUpgrade(server, wsRegistry, wsPrefix);
+
+  const listeners = httpServer.listeners('upgrade');
+  const triggerUpgrade = listeners[listeners.length - 1] as (
+    req: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ) => void;
+
+  return { server, triggerUpgrade };
+}
+
 describe('Ws Upgrade Handler', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -136,6 +160,29 @@ describe('Ws Upgrade Handler', () => {
       triggerUpgrade(req, socket, Buffer.alloc(0));
 
       expect(socket.destroy).toHaveBeenCalled();
+    });
+  });
+
+  describe('custom pathname base', () => {
+    it('matches the configured ws prefix instead of the default prefix', () => {
+      const wsRegistry = new Registry<WsEntry>();
+      wsRegistry.set('chat', {
+        endpoint: 'chat',
+        file: '/src/chat.ts',
+        imports: [],
+        handlersJs: '({})',
+      });
+
+      const { triggerUpgrade } = setupWithRegistryAndPrefix(wsRegistry, '/rpc-ws/');
+      const defaultSocket = createMockSocket();
+      const customSocket = createMockSocket();
+
+      triggerUpgrade(createMockRequest('/__server-build-ws/chat'), defaultSocket, Buffer.alloc(0));
+      triggerUpgrade(createMockRequest('/rpc-ws/chat'), customSocket, Buffer.alloc(0));
+
+      expect(defaultSocket.destroy).not.toHaveBeenCalled();
+      expect(customSocket.destroy).not.toHaveBeenCalled();
+      expect(mockHandleUpgrade).toHaveBeenCalledTimes(1);
     });
   });
 

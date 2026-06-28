@@ -1,13 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { processFile } from '../../src/core/processor';
 import { Registry } from '../../src/core/registry';
+import { createEndpointPaths } from '../../src/endpoint-paths';
 import type { ServerEntry, WsEntry } from '../../src/types';
 
-function makeOptions() {
+function makeOptions(overrides: Partial<Parameters<typeof processFile>[2]> = {}) {
   return {
     registry: new Registry<ServerEntry>(),
     wsRegistry: new Registry<WsEntry>(),
     root: '/project',
+    ...overrides,
   };
 }
 
@@ -40,6 +42,18 @@ describe('client replacement output', () => {
       // The endpoint URL should contain the API prefix and the endpoint path
       expect(result!.code).toContain('/__server-build/');
       expect(result!.code).toContain('get-todos');
+    });
+
+    it('uses a custom pathname base in the __serverFetch call', () => {
+      const code = `const getTodos = $server(async () => []);`;
+      const result = processFile(
+        code,
+        '/project/src/todos.ts',
+        makeOptions({ endpointPaths: createEndpointPaths('/rpc') }),
+      );
+      expect(result).not.toBeNull();
+      expect(result!.code).toContain('/rpc/todos/get-todos');
+      expect(result!.code).not.toContain('/__server-build/');
     });
   });
 
@@ -74,6 +88,20 @@ describe('client replacement output', () => {
       expect(result).not.toBeNull();
       expect(result!.code).toContain('/__server-build-ws/');
       expect(result!.code).toContain('chat');
+    });
+
+    it('uses a custom pathname base in the __wsConnect call', () => {
+      const code = `const chat = $ws({
+  onMessage(ws, data: string) { ws.send(data); },
+});`;
+      const result = processFile(
+        code,
+        '/project/src/chat.ts',
+        makeOptions({ endpointPaths: createEndpointPaths('/rpc') }),
+      );
+      expect(result).not.toBeNull();
+      expect(result!.code).toContain('/rpc-ws/chat/chat');
+      expect(result!.code).not.toContain('/__server-build-ws/');
     });
   });
 

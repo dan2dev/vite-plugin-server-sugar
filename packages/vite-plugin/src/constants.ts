@@ -1,4 +1,5 @@
-export const API_PREFIX = "/__server-build/";
+export const DEFAULT_PATHNAME_BASE = "/__server-build";
+export const API_PREFIX = `${DEFAULT_PATHNAME_BASE}/`;
 export const VIRTUAL_PREFIX = "virtual:server-build/server/";
 export const RESOLVED_PREFIX = "\0virtual:server-build/server/";
 export const VIRTUAL_FILE_PREFIX = "virtual:server-build/server-file/";

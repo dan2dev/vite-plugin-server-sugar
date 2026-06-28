@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { generateBundleContent } from '../../src/build/bundle-generator';
 import { Registry } from '../../src/core/registry';
+import { createEndpointPaths } from '../../src/endpoint-paths';
 import type { ServerEntry, WsEntry } from '../../src/types';
 
 let tempDir: string;
@@ -68,6 +69,42 @@ describe('Bundle Generator Output Structure', () => {
       expect(result).toContain('entry.fn(...args)');
       expect(result).toContain('contentMime !== "application/json"');
       expect(result).toContain('!contentMime.endsWith("+json")');
+    });
+
+    it('uses a custom pathname base for generated server and ws routes', () => {
+      const registry = new Registry<ServerEntry>();
+      const wsRegistry = new Registry<WsEntry>();
+      const entry = makeServerEntry({
+        endpoint: 'api/get-todos',
+        file: join(tempDir, 'src/todos.ts'),
+        fnJs: '(id) => ({ id })',
+      });
+      const wsEntry = makeWsEntry({
+        endpoint: 'ws/chat',
+        file: join(tempDir, 'src/chat.ts'),
+      });
+      registry.set(entry.endpoint, entry);
+      registry.registerFile(entry.file, [entry.endpoint]);
+      wsRegistry.set(wsEntry.endpoint, wsEntry);
+      wsRegistry.registerFile(wsEntry.file, [wsEntry.endpoint]);
+
+      const result = generateBundleContent(
+        registry,
+        undefined,
+        null,
+        tempDir,
+        join(tempDir, 'client'),
+        3001,
+        wsRegistry,
+        createEndpointPaths('/rpc'),
+      );
+
+      expect(result).not.toBeNull();
+      expect(result).toContain("app.all('/rpc/*'");
+      expect(result).toContain('__url.pathname.startsWith("/rpc-ws/")');
+      expect(result).toContain('url.pathname.slice(5)');
+      expect(result).toContain('__url.pathname.slice(8)');
+      expect(result).not.toContain("app.all('/__server-build/*'");
     });
   });
 

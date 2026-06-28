@@ -72,6 +72,7 @@ function wsConnections(): Map<string, Set<ServerWs>> {
 export function setupWsUpgrade(
   server: ViteDevServer,
   wsRegistry: Registry<WsEntry>,
+  wsPrefix = WS_API_PREFIX,
 ): void {
   const httpServer = server.httpServer;
   if (!httpServer) return;
@@ -82,11 +83,11 @@ export function setupWsUpgrade(
     "upgrade",
     (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       const url = requestUrl(req);
-      if (!url.pathname.startsWith(WS_API_PREFIX)) return;
+      if (!url.pathname.startsWith(wsPrefix)) return;
 
       let endpoint: string;
       try {
-        endpoint = decodeURIComponent(url.pathname.slice(WS_API_PREFIX.length));
+        endpoint = decodeURIComponent(url.pathname.slice(wsPrefix.length));
       } catch {
         socket.destroy();
         return;

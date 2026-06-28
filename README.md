@@ -88,11 +88,17 @@ export default defineConfig({
     serverBuildPlugin({
       port: 3001,
       serverEntry: "src/server.ts",
+      pathnameBase: "/server",
       compile: false,
     }),
   ],
 });
 ```
+
+`pathnameBase` is optional. By default, generated endpoints are mounted at
+`/__server-build/<endpoint>`. Setting `pathnameBase: "/server"` mounts
+`$server()` and HTTP helper endpoints at `/server/<endpoint>` and `$ws()`
+endpoints at `/server-ws/<endpoint>`.
 
 Register the macro types in `tsconfig.json`:
 
@@ -376,7 +382,8 @@ label. Duplicate endpoint names in the same file get a line/column suffix.
 `$server()` endpoints:
 
 - Method: `POST`.
-- Path: `/__server-build/<endpoint>`.
+- Path: `/{pathnameBase}/<endpoint>`, defaulting to
+  `/__server-build/<endpoint>`.
 - Body: JSON array of function arguments. A non-array JSON value is passed as
   one argument.
 - Success: JSON response, `204` for `undefined`, or the returned `Response`.
@@ -385,7 +392,8 @@ label. Duplicate endpoint names in the same file get a line/column suffix.
 
 HTTP helper endpoints:
 
-- Path: `/__server-build/<endpoint>`.
+- Path: `/{pathnameBase}/<endpoint>`, defaulting to
+  `/__server-build/<endpoint>`.
 - Method: the matching helper method.
 - `$get()`, `$delete()`, and `$head()` receive query parameters.
 - `$post()`, `$put()`, and `$patch()` receive a JSON body, optional query
@@ -393,7 +401,8 @@ HTTP helper endpoints:
 
 `$ws()` endpoints:
 
-- Path: `/__server-build-ws/<endpoint>`.
+- Path: `/{pathnameBase}-ws/<endpoint>`, defaulting to
+  `/__server-build-ws/<endpoint>`.
 - `connect(...args)` serializes connection args into the WebSocket URL.
 - Messages sent through generated wrappers are JSON-serialized.
 - Incoming messages are JSON-parsed when possible and otherwise passed through

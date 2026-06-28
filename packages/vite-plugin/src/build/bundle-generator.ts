@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { Registry } from "../core/registry";
 import type { ServerEntry, WsEntry } from "../types";
-import { API_PREFIX, WS_API_PREFIX } from "../constants";
+import { createEndpointPaths, type EndpointPaths } from "../endpoint-paths";
 import { toImportPath } from "../utils/path";
 import { serverConstName, wsConstName } from "../utils/crypto";
 import { runtimeImportSpecifier } from "../dev-server/virtual-modules";
@@ -26,6 +26,7 @@ export function generateBundleContent(
   clientOutDir: string,
   port: number,
   wsRegistry?: Registry<WsEntry>,
+  endpointPaths: EndpointPaths = createEndpointPaths(),
 ): string | null {
   const hasServerEntry = serverEntryPath ? existsSync(serverEntryPath) : false;
   const hasWs = !!wsRegistry && wsRegistry.size > 0;
@@ -311,11 +312,11 @@ export function generateBundleContent(
   }
 
   lines.push(
-    `app.all('${API_PREFIX}*', async (c) => {`,
+    `app.all('${endpointPaths.apiPrefix}*', async (c) => {`,
     "  const url = new URL(c.req.url);",
     "  let endpoint;",
     "  try {",
-    `    endpoint = decodeURIComponent(url.pathname.slice(${API_PREFIX.length}));`,
+    `    endpoint = decodeURIComponent(url.pathname.slice(${endpointPaths.apiPrefix.length}));`,
     "  } catch {",
     '    return c.json({ error: "Bad request" }, 400);',
     "  }",
@@ -438,10 +439,10 @@ export function generateBundleContent(
       "  port: PORT,",
       "  fetch(req, server) {",
       "    const __url = new URL(req.url);",
-      `    if (__url.pathname.startsWith(${JSON.stringify(WS_API_PREFIX)})) {`,
+      `    if (__url.pathname.startsWith(${JSON.stringify(endpointPaths.wsPrefix)})) {`,
       "      let __endpoint;",
       "      try {",
-      `        __endpoint = decodeURIComponent(__url.pathname.slice(${WS_API_PREFIX.length}));`,
+      `        __endpoint = decodeURIComponent(__url.pathname.slice(${endpointPaths.wsPrefix.length}));`,
       "      } catch {",
       '        return new Response("Bad request", { status: 400 });',
       "      }",
