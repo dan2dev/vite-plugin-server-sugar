@@ -1,5 +1,5 @@
 {
-  "name": "vite-plugin-server-build",
+  "name": "vite-plugin-server-sugar",
   "version": "0.1.0",
   "description": "Vite-first plugin that turns $server() calls into type-safe API endpoints bundled with Bun, with build-only Rollup and Rolldown entrypoints.",
   "$schema": "https://raw.githubusercontent.com/vitejs/vite-plugin-registry/refs/heads/main/data/schema/extended-package-json.schema.json",
@@ -18,13 +18,13 @@
     "server",
     "fullstack"
   ],
-  "homepage": "https://github.com/dan2dev/vite-plugin-server-build#readme",
+  "homepage": "https://github.com/dan2dev/vite-plugin-server-sugar#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dan2dev/vite-plugin-server-build.git"
+    "url": "git+https://github.com/dan2dev/vite-plugin-server-sugar.git"
   },
   "bugs": {
-    "url": "https://github.com/dan2dev/vite-plugin-server-build/issues"
+    "url": "https://github.com/dan2dev/vite-plugin-server-sugar/issues"
   },
   "exports": {
     ".": {
@@ -101,12 +101,12 @@
     "rollup": {
       "type": "compatible",
       "versions": ">=4.0.0",
-      "note": "Use vite-plugin-server-build/rollup. Rollup support is build-only; Vite dev-server middleware and HMR are not available."
+      "note": "Use vite-plugin-server-sugar/rollup. Rollup support is build-only; Vite dev-server middleware and HMR are not available."
     },
     "rolldown": {
       "type": "compatible",
       "versions": ">=1.0.0",
-      "note": "Use vite-plugin-server-build/rolldown. Rolldown support is build-only; Vite dev-server middleware and HMR are not available."
+      "note": "Use vite-plugin-server-sugar/rolldown. Rolldown support is build-only; Vite dev-server middleware and HMR are not available."
     }
   },
   "devDependencies": {

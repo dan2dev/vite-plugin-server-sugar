@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
-import { serverBuildPlugin } from 'vite-plugin-server-build'
+import { serverBuildPlugin } from 'vite-plugin-server-sugar'
 
 // https://vite.dev/config/
 export default defineConfig({

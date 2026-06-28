@@ -1,5 +1,5 @@
 /**
- * Ambient declaration for the `$ws()` macro injected by vite-plugin-server-build.
+ * Ambient declaration for the `$ws()` macro injected by vite-plugin-server-sugar.
  *
  * - On the server the handlers run for the lifetime of each connection.
  * - In the browser the call is replaced with `{ connect(...args) }`, which

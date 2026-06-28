@@ -8,7 +8,7 @@ describe("processFile", () => {
 
   test("strips module-level declarations used only by handlers", () => {
     const code = `
-import { $server } from 'vite-plugin-server-build/server';
+import { $server } from 'vite-plugin-server-sugar/server';
 const SECRET = "secret-value";
 export const getSecret = $server(() => SECRET);
 `;
@@ -25,7 +25,7 @@ export const getSecret = $server(() => SECRET);
 
   test("strips transitive module-level declarations", () => {
     const code = `
-import { $server } from 'vite-plugin-server-build/server';
+import { $server } from 'vite-plugin-server-sugar/server';
 const A = 1;
 const B = A + 1;
 export const get = $server(() => B);
@@ -41,7 +41,7 @@ export const get = $server(() => B);
 
   test("preserves module-level declarations used by client code", () => {
     const code = `
-import { $server } from 'vite-plugin-server-build/server';
+import { $server } from 'vite-plugin-server-sugar/server';
 const SHARED = "shared-value";
 export const get = $server(() => SHARED);
 console.log(SHARED);
@@ -57,7 +57,7 @@ console.log(SHARED);
   
   test("strips imports used only by stripped declarations", () => {
     const code = `
-import { $server } from 'vite-plugin-server-build/server';
+import { $server } from 'vite-plugin-server-sugar/server';
 import { readFileSync } from 'node:fs';
 const config = readFileSync('config.json');
 export const get = $server(() => config);
@@ -73,7 +73,7 @@ export const get = $server(() => config);
 
   test("strips multiple declarations correctly", () => {
     const code = `
-import { $server } from 'vite-plugin-server-build/server';
+import { $server } from 'vite-plugin-server-sugar/server';
 const A = 1;
 const B = 2;
 export const getA = $server(() => A);

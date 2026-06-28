@@ -6,9 +6,9 @@
     "types": [
       "vite/client",
       "bun-types",
-      "vite-plugin-server-build/server",
-      "vite-plugin-server-build/ws",
-      "vite-plugin-server-build/worker",
+      "vite-plugin-server-sugar/server",
+      "vite-plugin-server-sugar/ws",
+      "vite-plugin-server-sugar/worker",
       "node",
     ],
     "skipLibCheck": true,

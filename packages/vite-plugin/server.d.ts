@@ -1,5 +1,5 @@
 /**
- * Ambient declaration for the `$server()` macro injected by vite-plugin-server-build.
+ * Ambient declaration for the `$server()` macro injected by vite-plugin-server-sugar.
  *
  * - On the server the original function runs directly.
  * - In the browser it is replaced with a typed `fetch` wrapper.

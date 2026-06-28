@@ -1,5 +1,5 @@
 /**
- * Ambient declaration for the `$worker()` macro injected by vite-plugin-server-build.
+ * Ambient declaration for the `$worker()` macro injected by vite-plugin-server-sugar.
  *
  * Creates a dedicated Web Worker thread with shared context. The factory runs
  * once inside the worker and the returned object's methods are exposed to the

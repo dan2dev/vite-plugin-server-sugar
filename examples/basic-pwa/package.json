@@ -32,6 +32,6 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.62.0",
     "vite": "^8.1.0",
-    "vite-plugin-server-build": "../../packages/vite-plugin"
+    "vite-plugin-server-sugar": "../../packages/vite-plugin"
   }
 }

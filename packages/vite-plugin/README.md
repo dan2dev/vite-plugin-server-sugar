@@ -1,96 +1,81 @@
-# vite-plugin-server-build
+# vite-plugin-server-sugar
 
-![Vite compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=vite)
-![Rollup compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=rollup)
-![Rolldown compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-build&tool=rolldown)
+![Vite compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=vite)
+![Rollup compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rollup)
+![Rolldown compatibility](https://registry.vite.dev/api/badges?package=vite-plugin-server-sugar&tool=rolldown)
 
-A Vite-first plugin that turns `$server()` and `$ws()` calls written inline in
-your frontend source into type-safe server endpoints. In the browser bundle the
-calls become `fetch()` or `WebSocket` clients; on the server the original
-functions and handlers run inside a generated Bun + Hono application.
+Write server functions, HTTP handlers, WebSockets, and Web Workers inline in
+your Vite app. `vite-plugin-server-sugar` turns compile-time macros like
+`$server()` and `$ws()` into browser-safe clients, then emits a Bun + Hono
+server that runs the original server code.
 
 ```ts
 // src/todos.ts
 import { db } from "./db";
 
-export const getTodos = server(async () => {
-  return db.query("SELECT * FROM todos").all();
+export const getTodos = $server(async () => {
+  return db.query("SELECT * FROM todos ORDER BY created_at DESC").all();
 });
 
-export const addTodo = server(async (text: string) => {
+export const addTodo = $server(async (text: string) => {
   return db.query("INSERT INTO todos (text) VALUES (?) RETURNING *").get(text);
 });
 ```
 
 ```tsx
 // src/App.tsx
-import { getTodos, addTodo } from "./todos";
+import { addTodo, getTodos } from "./todos";
 
-const todos = await getTodos(); // POST /__server-build/todos/get-todos
-await addTodo("buy milk");      // POST /__server-build/todos/add-todo
+const todos = await getTodos();
+await addTodo("Ship the README");
 ```
 
-No schema, no route file, no separate code generation command. The functions
-remain normal TypeScript values with inferred argument and return types on both
-sides of the wire, while server-only imports used only inside handlers are
-removed from the browser output.
+There is no route file, schema file, or separate codegen command. The macros
+preserve TypeScript argument and return types on the client, while server-only
+imports used only inside handlers are removed from the browser bundle.
 
-`$ws()` follows the same model for persistent connections:
+## Features
 
-```ts
-// src/chat.ts
-type ChatMessage = { text: string };
-
-const history: ChatMessage[] = [];
-
-export const getHistory = server(async () => history);
-
-export const chat = ws({
-  onOpen(ws: ServerWs<ChatMessage>) {
-    ws.send({ text: "connected" });
-  },
-  onMessage(ws: ServerWs<ChatMessage>, data: ChatMessage) {
-    history.push(data);
-    chat.send(data);
-  },
-});
-```
-
-```tsx
-const conn = chat.connect();
-conn.onMessage((data) => console.log(data.text));
-conn.send({ text: "hello" });
-```
-
-For the maintainer-level implementation notes, see
-[ARCHITECTURE.md](./ARCHITECTURE.md).
+- Type-safe inline RPC with `$server()`.
+- REST-shaped handlers with `$get()`, `$post()`, `$put()`, `$patch()`,
+  `$delete()`, and `$head()`.
+- Typed WebSockets with `$ws()`, including server-to-client broadcast from
+  sibling handlers.
+- Dedicated Web Workers with `$worker()` and typed async method proxies.
+- Optional custom Hono app through `serverEntry`.
+- Vite dev-server integration, HMR invalidation, and production server
+  generation.
+- Build-only Rollup and Rolldown entrypoints.
 
 ## Install
 
 ```bash
-npm install vite-plugin-server-build hono
-# or
-bun add vite-plugin-server-build hono
+npm install vite-plugin-server-sugar hono
 ```
 
-Requires Vite `>=6.0.0` for the primary integration. Build-only Rollup
-`>=4.0.0` and Rolldown `>=1.0.0` entrypoints are also provided for projects
-that are not using Vite's dev server. The generated production server runs on Bun, and
-projects that use Bun-only APIs in handlers should run Vite under Bun as well
-for dev/build parity, for example `bunx --bun vite` and
-`bunx --bun vite build`.
+```bash
+bun add vite-plugin-server-sugar hono
+```
 
-`hono` is a **peer dependency**. It must be installed in your project even if you don't provide a custom `serverEntry`, as the generated production server and dev-mode augmentation rely on it.
+`hono` is a peer dependency. The generated production server runs on Bun. If
+your handlers use Bun-only APIs, run Vite through Bun as well so development
+and production have the same runtime behavior:
+
+```bash
+bunx --bun vite
+bunx --bun vite build
+```
+
+The primary integration expects Vite `>=6.0.0`. Build-only Rollup `>=4.0.0`
+and Rolldown `>=1.0.0` entrypoints are also available.
 
 ## Setup
 
-### Vite (primary)
-
-**`vite.config.ts`**
+Add the plugin to `vite.config.ts`:
 
 ```ts
 import { defineConfig } from "vite";
-import { serverBuildPlugin } from "vite-plugin-server-build";
+import { serverBuildPlugin } from "vite-plugin-server-sugar";
 
 export default defineConfig({
   plugins: [
@@ -103,66 +88,206 @@ export default defineConfig({
 });
 ```
 
-### Rollup / Rolldown (build-only)
-
-The default `vite-plugin-server-build` entrypoint is the supported and most
-feature-complete integration. It includes Vite config handling, dev-server
-middleware, WebSocket upgrades, and HMR invalidation.
-
-For pure Rollup or pure Rolldown builds, use the explicit build-only subpath
-entrypoints:
-
-```ts
-// rollup.config.ts
-import serverBuild from "vite-plugin-server-build/rollup";
-
-export default {
-  input: "src/main.ts",
-  output: { dir: "dist/client", format: "esm" },
-  plugins: [serverBuild({ port: 3001 })],
-};
-```
-
-```ts
-// rolldown.config.ts
-import serverBuild from "vite-plugin-server-build/rolldown";
-
-export default {
-  input: "src/main.ts",
-  output: { dir: "dist/client", format: "esm" },
-  plugins: [serverBuild({ port: 3001 })],
-};
-```
-
-Rollup/Rolldown compatibility is intentionally **build-only**: these entrypoints
-share the transform, virtual module, worker chunk, and production server
-generation hooks, but they do not provide Vite dev-server middleware or HMR.
-Use `output.dir: "dist/client"` if you want the same `dist/client` +
-`dist/server` layout as Vite.
-
-**`tsconfig.json`**
-
-Register the ambient macro types so TypeScript recognizes `$server()` and
-`$ws()` without imports:
+Register the ambient macro types in `tsconfig.json`:
 
 ```json
 {
   "compilerOptions": {
     "types": [
-      "vite-plugin-server-build/server",
-      "vite-plugin-server-build/ws"
+      "vite-plugin-server-sugar/server",
+      "vite-plugin-server-sugar/ws",
+      "vite-plugin-server-sugar/worker"
     ]
   }
 }
 ```
 
-**Optional `src/server.ts`**
+The macros are compile-time markers. Do not import `$server`, `$ws`,
+`$worker`, or the HTTP method helpers from the package.
 
-Use `serverEntry` when you want your own routes or middleware to run alongside
-generated endpoints. Export a Hono app as the default export or as a named
-`app` export.
+## Server Functions
+
+Use `$server()` for typed RPC-style calls. The client calls a generated
+`POST /__server-build/<endpoint>` endpoint; the server runs the original
+function.
 
 ```ts
+// src/user.ts
+import { db } from "./db";
+
+export const getUser = $server(async (id: string) => {
+  return db.query("SELECT * FROM users WHERE id = ?").get(id);
+});
+
+export const renameUser = $server(async (id: string, name: string) => {
+  db.query("UPDATE users SET name = ? WHERE id = ?").run(name, id);
+});
+```
+
+```tsx
+const user = await getUser("u_123");
+await renameUser("u_123", "Ada");
+```
+
+Values that cross the wire should be JSON-serializable. TypeScript inference is
+compile-time only; the plugin does not add runtime schema validation.
+
+### Shared State And Sibling Calls
+
+Top-level values referenced by handlers are captured into a shared per-file
+server scope. Sibling handlers in the same file can call each other and share
+state.
+
+```ts
+let requestCount = 0;
+
+export const countRequest = $server(() => {
+  requestCount += 1;
+  return requestCount;
+});
+
+export const getStatus = $server(async () => {
+  return {
+    requests: await countRequest(),
+    uptime: process.uptime(),
+  };
+});
+```
+
+## HTTP Method Helpers
+
+Use the HTTP helpers when you want method-specific handlers with a small
+Hono-compatible context object.
+
+```ts
+// src/todos.ts
+import { db } from "./db";
+
+export const listTodos = $get(async (c) => {
+  const limit = c.req.query("limit");
+  return db.query("SELECT * FROM todos LIMIT ?").all(Number(limit ?? "50"));
+});
+
+export const getTodo = $get(
+  async (c: ServerContext<never, { id: string }>) => {
+    const id = c.req.query("id");
+    return db.query("SELECT * FROM todos WHERE id = ?").get(id);
+  },
+);
+
+export const createTodo = $post(
+  async (c: ServerContext<{ text: string }>) => {
+    const body = await c.req.json();
+    return db.query("INSERT INTO todos (text) VALUES (?) RETURNING *").get(
+      body.text,
+    );
+  },
+);
+```
+
+```ts
+await listTodos({ limit: "10" });
+await getTodo({ id: "42" });
+await createTodo({ text: "Write docs" });
+```
+
+Typed query objects make the client query argument required. Untyped query
+objects are optional. `$post()`, `$put()`, and `$patch()` take the body first,
+then an optional query object, then optional fetch headers.
+
+```ts
+await createTodo(
+  { text: "Document auth headers" },
+  undefined,
+  { headers: { Authorization: "Bearer token" } },
+);
+```
+
+Handlers may return plain JSON-serializable values, `undefined`, or a
+`Response`. Returning `undefined` sends `204 No Content`.
+
+## WebSockets
+
+Use `$ws()` for persistent connections. Message types are inferred from handler
+annotations, or can be supplied explicitly.
+
+```ts
+// src/chat.ts
+type ClientMessage = { text: string };
+type ServerMessage = { text: string; from: string };
+
+const history: ServerMessage[] = [];
+
+export const getHistory = $server(async () => history);
+
+export const chat = $ws<ClientMessage, ServerMessage, [username: string]>({
+  onOpen(ws) {
+    ws.send({ text: `Joined ${ws.args[0]}`, from: "system" });
+  },
+  onMessage(ws, data) {
+    const message = { text: data.text, from: ws.args[0] };
+    history.push(message);
+    chat.send(message);
+  },
+});
+```
+
+```ts
+const conn = chat.connect("ada");
+
+conn.onMessage((message) => {
+  console.log(message.from, message.text);
+});
+
+conn.send({ text: "hello" });
+```
+
+On the client, `.connect(...args)` opens a `WebSocket`, `.send(data)` sends
+JSON, `.onMessage(cb)` receives parsed messages, and `.close()` closes the
+socket. On the server, `ws.args` contains the connection arguments and
+`chat.send(data)` broadcasts to open sockets for that endpoint.
+
+## Web Workers
+
+Use `$worker()` to create a dedicated module worker with typed async method
+proxies. The factory runs once inside the worker, so closure state is shared
+across method calls.
+
+```ts
+// src/stats-worker.ts
+import { getTodos } from "./todos";
+
+export const statsWorker = $worker(() => {
+  let calls = 0;
+
+  async function summarize() {
+    calls += 1;
+    const todos = await getTodos();
+    return {
+      calls,
+      total: todos.length,
+      done: todos.filter((todo) => todo.done).length,
+    };
+  }
+
+  return { summarize };
+});
+```
+
+```ts
+const stats = await statsWorker.summarize();
+```
+
+`$server()` and `$ws()` wrappers can be called from inside workers because
+`fetch` and `WebSocket` are available in Web Workers.
+
+## Custom Hono App
+
+Use `serverEntry` when you want custom routes or middleware alongside generated
+endpoints. Export a Hono app as the default export or as a named `app` export.
+
+```ts
+// src/server.ts
 import { Hono } from "hono";
 
 const app = new Hono();
@@ -175,204 +300,22 @@ app.use("*", async (_c, next) => {
 export default app;
 ```
 
+In dev mode, generated API routes are mounted into this app through Vite SSR.
+In production, the generated Bun server uses the same Hono app before serving
+static client assets.
+
 ## Options
 
 | Option | Type | Default | Description |
-|---|---|---|---|
-| `port` | `number` | `3001` | Dev-server port default and generated production server fallback port. Production can override it with the `PORT` environment variable. |
-| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. Its routes and middleware are layered with generated server routes. |
-| `compile` | `boolean` | `false` | After emitting `dist/server/server.mjs`, also compile standalone Bun executables for every supported Bun target. Requires Bun runtime support or the `bun` CLI on `PATH`. |
-
-## Programming Model
-
-`$server()` and `$ws()` are compile-time macros, not runtime functions.
-Their declarations in `server.d.ts` and `ws.d.ts` exist only for type
-checking.
-
-During Vite transforms:
-
-- `server(fn)` is replaced in client code with an async function that posts
-  JSON to `/__server-build/<endpoint>`.
-- `ws(handlers)` is replaced in client code with an object containing
-  `connect(...args)`, which opens `ws://` or `wss://` to
-  `/__server-build-ws/<endpoint>`.
-- The original server function/handler source is recorded in an internal
-  registry and later loaded through dev virtual modules or emitted into the
-  production server bundle.
-- Runtime imports referenced only inside server handlers are preserved for the
-  server build and removed from the client build when they are not used
-  elsewhere.
-
-Endpoint names are deterministic. The plugin takes the file path relative to
-the Vite root, strips a leading `src/`, removes the extension, appends an
-inferred handler label, then kebab-cases each segment:
-
-```txt
-src/todos.ts + getTodos -> todos/get-todos
-src/admin/users.ts + deleteUser -> admin/users/delete-user
-```
-
-Labels usually come from the assigned variable or object property name:
-
-```ts
-export const getUser = server(async () => {});
-
-export const api = {
-  saveUser: server(async () => {}),
-};
-```
-
-If the plugin cannot infer a natural name, it falls back to a line/column label.
-Duplicate endpoint names in the same file get a line/column suffix.
-
-## Request Contract
-
-Generated `$server()` endpoints use this HTTP contract:
-
-- Method: `POST`.
-- Path: `/__server-build/<endpoint>`.
-- Body: JSON array of function arguments. A non-array JSON value is accepted
-  and passed as a single argument.
-- Content type: omitted or `application/json`.
-- Success: JSON response for returned values.
-- `undefined` return: `204 No Content`.
-- Invalid endpoint: `404`.
-- Wrong method: `405` with `Allow: POST`.
-- Unsupported content type: `415`.
-- Bad URL encoding or invalid JSON in production/custom-app routing: `400`.
-- Handler exception: `500` with `{ "error": "<message>" }`.
-
-The client wrapper reads the response text, throws `Error(message)` for
-non-2xx responses, and JSON-parses successful non-empty responses.
-
-Values crossing the wire should be JSON-serializable. There is no runtime
-schema validation; TypeScript inference is compile-time only.
-
-## WebSocket Contract
-
-`$ws()` supports `onOpen`, `onMessage`, and `onClose` handlers.
-
-```ts
-export const chat = ws<
-  { text: string },
-  { text: string; from: string },
-  [roomId: string]
->({
-  onOpen(ws) {
-    console.log(ws.args[0]);
-  },
-  onMessage(ws, data) {
-    ws.send({ text: data.text, from: "server" });
-  },
-});
-```
-
-On the client:
-
-- `chat.connect(...args)` serializes the connect args into the ws URL.
-- `conn.send(data)` JSON-stringifies outgoing messages.
-- `conn.onMessage(cb)` receives JSON-parsed messages, falling back to raw data
-  if parsing fails.
-- `conn.onClose(cb)`, `conn.close(...)`, and `conn.readyState` mirror the
-  underlying browser ws.
-
-On the server:
-
-- `ws.args` contains the args passed to `connect(...args)`.
-- `ws.send(data)` JSON-stringifies data before sending it to that client.
-- The object returned by `$ws()` also has `send(data)`, which broadcasts
-  to all currently open sockets for that endpoint. This is meant to be called
-  from sibling `$server()` or `$ws()` handlers in the same file.
-
-## Shared Module State
-
-Top-level declarations used by handlers are captured into a shared per-file
-server scope. That means state declared next to handlers is shared across
-requests and across sibling `$server()` and `$ws()` handlers from the
-same file in both dev and production.
-
-```ts
-const countByUser = new Map<string, number>();
-
-export const increment = server(async (userId: string) => {
-  countByUser.set(userId, (countByUser.get(userId) ?? 0) + 1);
-  return countByUser.get(userId);
-});
-
-export const reset = server(async (userId: string) => {
-  countByUser.delete(userId);
-});
-```
-
-Only declarations that the handlers actually reference are emitted into the
-server scope. If a handler references a value that is not imported, not locally
-bound, not a known runtime global, and not captured from module scope, the
-plugin emits a warning during scans/watch updates.
-
-## Development Mode
-
-The Vite entrypoint uses Vite's standard plugin lifecycle:
-
-- `config` forces the client build output into a `client` directory under the
-  configured `dist` root and defaults the dev server port to `port`.
-- `buildStart` and `configureServer` scan project `.ts`/`.tsx` files, skipping
-  `node_modules`, `.git`, declaration files, and the dist directory.
-- `transform` rewrites client-facing source and registers discovered handlers.
-- `resolveId` and `load` serve internal virtual modules for client helpers,
-  per-file server modules, and per-endpoint server modules.
-- File watcher events reprocess changed files and invalidate the relevant Vite
-  module graph entries so the next request uses fresh handler code.
-
-Backend HTTP requests in dev are served through the Vite dev server:
-
-- Without `serverEntry`, plugin middleware handles `/__server-build/*`
-  directly.
-- With `serverEntry`, the configured Hono app is loaded through
-  `server.ssrLoadModule()`, augmented once with generated server routes, and
-  called via `app.fetch()`. This lets user middleware run for generated
-  server routes, matching production behavior. Non-API `404` responses fall
-  through to Vite's normal middleware.
-
-WebSocket upgrades in dev hook the Vite HTTP server's `upgrade` event and use
-the `ws` package in `noServer` mode. The $ws handler module and upgrade
-handler share open-connection state through a fixed `globalThis` key so
-`chat.send(...)` broadcasts correctly during dev SSR.
-
-## Production Build
-
-On `vite build`, Vite writes the client build to `dist/client` by default.
-Then the plugin's `writeBundle` hook generates and bundles the server:
-
-1. Clean stale top-level entries in the dist root while preserving
-   `dist/client` and `dist/server`.
-2. Remove the previous `dist/server` directory.
-3. Generate one Bun + Hono server source module from all registered handlers
-   and the optional `serverEntry`.
-4. Bundle that generated source with Rolldown into `dist/server/server.mjs`.
-5. If `compile: true`, compile standalone Bun executables for all supported
-   targets.
-
-The generated production server:
-
-- Registers `POST /__server-build/*` for generated $server calls.
-- Registers `app.all('/__server-build/*')` to reject non-POST API calls.
-- Uses the configured Hono app when `serverEntry` is present, otherwise creates
-  a bare `new Hono()`.
-- Serves static files from `dist/client`.
-- Uses long immutable cache headers for files under `/assets/` and
-  revalidation headers elsewhere.
-- Prevents directory traversal before reading static files.
-- Falls back to `index.html` for unmatched GET requests, making SPA routing
-  work from the same server process.
-- Uses `Bun.serve`. When $ws handlers exist, the same `Bun.serve` call
-  also performs ws upgrades and dispatches `open`, `message`, and
-  `close` events to the generated handlers.
-- Reads `PORT` from `Bun.env.PORT`; invalid or missing values fall back to the
-  configured `port`.
+| --- | --- | --- | --- |
+| `port` | `number` | `3001` | Dev server port default and production fallback port. Production can override it with `PORT`. |
+| `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. |
+| `compile` | `boolean` | `false` | Also compile standalone Bun executables for supported Bun targets after emitting `dist/server/server.mjs`. |
 
 ## Build Output
 
-Default output:
+`vite build` writes the client build to `dist/client` and emits the generated
+server to `dist/server/server.mjs`.
 
 ```txt
 dist/
@@ -383,72 +326,109 @@ dist/
     server.mjs
 ```
 
-Run the production server:
+Run the generated server with Bun:
 
 ```bash
 bun dist/server/server.mjs
 ```
 
-With `compile: true`, the plugin also emits one executable per supported Bun
-compile target:
+When `compile: true`, the plugin also emits standalone Bun executables for the
+supported Bun targets under `dist/server/`.
+
+## Endpoint Names
+
+Endpoint names are deterministic. The plugin takes the source file path
+relative to the Vite root, strips a leading `src/`, removes the extension,
+appends an inferred handler label, and kebab-cases every segment.
 
 ```txt
-dist/server/server-bun-darwin-x64
-dist/server/server-bun-darwin-arm64
-dist/server/server-bun-linux-x64
-dist/server/server-bun-linux-arm64
-dist/server/server-bun-linux-x64-musl
-dist/server/server-bun-linux-arm64-musl
-dist/server/server-bun-windows-x64.exe
-dist/server/server-bun-windows-arm64.exe
+src/todos.ts + getTodos -> todos/get-todos
+src/admin/users.ts + deleteUser -> admin/users/delete-user
 ```
 
-The compiled binaries still expect the client build directory to exist next to
-the generated server output layout. The generated code resolves static asset
-paths from `import.meta.url` for normal `server.mjs` execution and from
-`process.execPath` inside Bun's compiled executable environment.
+Labels usually come from the assigned variable or object property name:
 
-## Internal Architecture
+```ts
+export const getUser = $server(async () => {});
 
-The implementation is split into these main pieces:
-
-```txt
-src/index.ts
-  Vite plugin entry point and lifecycle hooks.
-
-src/core/processor.ts
-  TypeScript AST transform. Finds $server()/$ws(), derives endpoints,
-  collects imports and shared declarations, rewrites client code, and fills
-  the registries.
-
-src/core/registry.ts
-  Endpoint registry indexed by endpoint and source file for incremental
-  updates.
-
-src/dev-server/virtual-modules.ts
-  Generates Vite virtual modules for client helpers and server handlers.
-
-src/dev-server/middleware.ts
-  Converts Node requests/responses to Web Request/Response objects and handles
-  generated server requests in dev.
-
-src/dev-server/ws-upgrade.ts
-  Handles dev ws upgrades with the ws package.
-
-src/dev-server/hmr.ts
-  Invalidates Vite module graph entries for changed endpoint modules.
-
-src/build/bundle-generator.ts
-  Emits the complete production server source string.
-
-src/build/bundler.ts
-  Bundles the generated source with Rolldown and optionally compiles Bun
-  executables.
+export const api = {
+  saveUser: $server(async () => {}),
+};
 ```
 
-The full walkthrough of the processor, virtual module graph, production
-bundling pipeline, and validation behavior lives in
-[ARCHITECTURE.md](./ARCHITECTURE.md).
+If the plugin cannot infer a natural name, it falls back to a line/column
+label. Duplicate endpoint names in the same file get a line/column suffix.
+
+## Runtime Contracts
+
+`$server()` endpoints:
+
+- Method: `POST`.
+- Path: `/__server-build/<endpoint>`.
+- Body: JSON array of function arguments. A non-array JSON value is passed as
+  one argument.
+- Success: JSON response, `204` for `undefined`, or the returned `Response`.
+- Errors: `404` unknown endpoint, `405` wrong method, `415` unsupported content
+  type, `400` invalid JSON or bad URL encoding, `500` handler exception.
+
+HTTP helper endpoints:
+
+- Path: `/__server-build/<endpoint>`.
+- Method: the matching helper method.
+- `$get()`, `$delete()`, and `$head()` receive query parameters.
+- `$post()`, `$put()`, and `$patch()` receive a JSON body, optional query
+  parameters, and optional headers.
+
+`$ws()` endpoints:
+
+- Path: `/__server-build-ws/<endpoint>`.
+- `connect(...args)` serializes connection args into the WebSocket URL.
+- Messages sent through the generated wrappers are JSON-serialized.
+- Incoming messages are JSON-parsed when possible and fall back to raw data.
+
+Client wrappers read the response text, throw `Error(message)` for non-2xx
+responses, and parse successful non-empty responses as JSON.
+
+## Rollup And Rolldown
+
+The default Vite entrypoint is the most complete integration. It includes Vite
+config handling, dev-server middleware, WebSocket upgrades, HMR invalidation,
+and production server generation.
+
+For build-only Rollup or Rolldown usage, import the explicit subpath:
+
+```ts
+// rollup.config.ts
+import serverBuild from "vite-plugin-server-sugar/rollup";
+
+export default {
+  input: "src/main.ts",
+  output: { dir: "dist/client", format: "esm" },
+  plugins: [serverBuild({ port: 3001 })],
+};
+```
+
+```ts
+// rolldown.config.ts
+import serverBuild from "vite-plugin-server-sugar/rolldown";
+
+export default {
+  input: "src/main.ts",
+  output: { dir: "dist/client", format: "esm" },
+  plugins: [serverBuild({ port: 3001 })],
+};
+```
+
+Rollup and Rolldown entrypoints share the transform, virtual modules, worker
+chunks, and production server generation hooks, but they do not provide Vite
+dev-server middleware or HMR.
+
+## Examples
+
+The repository includes a Vite example app at
+[`examples/basic-pwa`](../../examples/basic-pwa) covering `$server`, HTTP
+method helpers, `$ws`, `$worker`, custom Hono routes, shared state, and edge
+cases.
 
 ## Development
 
@@ -458,14 +438,17 @@ Install dependencies:
 bun install
 ```
 
-Run tests:
+Run the test suite:
 
 ```bash
 bun run test
 ```
 
-Build the plugin package:
+Build the package:
 
 ```bash
 bun run build
 ```
+
+For maintainer-level implementation notes, see
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).

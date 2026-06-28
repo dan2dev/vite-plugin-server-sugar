@@ -147,7 +147,7 @@ export function createServerBuildPlugin(
   }
 
   const plugin: UniversalPlugin = {
-    name: "vite-plugin-server-build",
+    name: "vite-plugin-server-sugar",
 
     config: host === "vite"
       ? (config, { command: cmd }) => {

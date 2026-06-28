@@ -533,7 +533,7 @@ function AdditionalEdgeCasesSection() {
 function App() {
 	return (
 		<div id="center">
-			<h1>vite-plugin-server-build</h1>
+			<h1>vite-plugin-server-sugar</h1>
 			<p className="subtitle">API examples and edge cases</p>
 			<TodosSection />
 			<ServerEdgeCases />
