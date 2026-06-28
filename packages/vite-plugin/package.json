@@ -53,6 +53,7 @@
   "files": [
     "dist",
     "server.d.ts",
+    "THIRD_PARTY_NOTICES.md",
     "ws.d.ts",
     "worker.d.ts"
   ],
