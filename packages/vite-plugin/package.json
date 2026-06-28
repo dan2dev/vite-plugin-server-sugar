@@ -1,6 +1,6 @@
 {
   "name": "vite-plugin-server-sugar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vite-first plugin that turns $server() calls into type-safe API endpoints bundled with Bun, with build-only Rollup and Rolldown entrypoints.",
   "$schema": "https://raw.githubusercontent.com/vitejs/vite-plugin-registry/refs/heads/main/data/schema/extended-package-json.schema.json",
   "author": "Danilo Castro <duocraft.tech@gmail.com>",
