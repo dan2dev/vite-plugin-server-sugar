@@ -72,9 +72,9 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
-    "rolldown": "^1.2.0",
+    "rolldown": "^1.2.7",
     "typescript": "^6.0.3",
-    "ws": "^8.21.1"
+    "ws": "^8.21.3"
   },
   "peerDependencies": {
     "hono": ">=4.0.0",
@@ -112,16 +112,16 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.4.1",
     "@types/ws": "^8.18.1",
     "@typescript/native-preview": "7.0.0-dev.20260628.1",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "bumpp": "^11.1.0",
-    "bun-types": "^1.3.14",
+    "bun-types": "^1.4.0",
     "fast-check": "^4.9.0",
-    "hono": "^4.12.30",
-    "tsdown": "^0.22.8",
-    "vite": "^8.1.4",
-    "vitest": "^4.1.10"
+    "hono": "^4.13.5",
+    "tsdown": "^0.22.14",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   }
 }
