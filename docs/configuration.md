@@ -149,28 +149,34 @@ serverBuildPlugin({
 - `"hono"` (default): the historical Bun + Hono output described above
   (`dist/server/server.mjs`, started with `Bun.serve`).
 - `"cloudflare-worker"`: generate Cloudflare Workers-compatible ES modules
-  instead. Build, then deploy with
-  [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+  instead. Build, then deploy independent Workers before the gateway that
+  forwards to them, with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
 
   ```bash
   vite build
+  for dir in dist/server/functions/*/; do
+    npx wrangler deploy --config "$dir/wrangler.toml"
+  done
   npx wrangler deploy --config dist/server/wrangler.toml
   ```
 
   See [Runtime and deployment](./runtime-and-deployment.md#deployment-checklist)
   for the full deployment checklist (authentication, CI/CD, secrets,
   bindings, custom domains) and output layout. In short:
-  - `dist/server/worker.mjs` + `dist/server/wrangler.toml`: one Worker
-    serving every `$server()`/HTTP endpoint (and your `serverEntry` app, if
-    configured). Static assets are served by Cloudflare's own asset system,
-    not bundled into the Worker.
   - `dist/server/functions/<name>/` (`index.mjs` + `wrangler.toml`): each
-    `$server()`/HTTP endpoint emitted as its own independently deployable
-    Worker, so it can run and scale separately from the rest. Endpoints from
-    the same source file that share module-level state, or call each other
-    by name, are grouped into one Worker together since that state cannot
-    span separate deployments. These are skipped when `serverEntry` is
-    configured — see below.
+    `$server()`/HTTP endpoint emitted as its own independently deployable,
+    fully self-contained Worker, so it can run and scale separately from the
+    rest. Endpoints from the same source file that share module-level state,
+    or call each other by name, are grouped into one Worker together since
+    that state cannot span separate deployments. Skipped when `serverEntry`
+    is configured — see below.
+  - `dist/server/worker.mjs` + `dist/server/wrangler.toml`: without
+    `serverEntry`, a thin gateway — it serves static assets and forwards
+    each endpoint to the independent Worker above that implements it, via a
+    generated [Service Binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+    (no manual routing or custom domain needed to reach them from one
+    origin). With `serverEntry`, this instead mounts every endpoint directly
+    onto your app and exports it — see below.
 
 Constraints:
 
@@ -180,10 +186,14 @@ Constraints:
   descriptive error if any `$ws()` handlers are registered.
 - `compile` is only valid with `platform: "hono"`; combining it with
   `platform: "cloudflare-worker"` throws at plugin setup time.
-- When `serverEntry` is configured, only the combined `worker.mjs` is
-  generated. Splitting endpoints into independent Workers would bypass your
-  app's own middleware/routes for those endpoints, so the plugin mounts
-  everything on your app instead, exactly like `platform: "hono"` does.
+- When `serverEntry` is configured, no independent Workers are generated —
+  everything is mounted on your app in `dist/server/worker.mjs` instead.
+  Splitting endpoints into independent Workers would bypass your app's own
+  middleware/routes for those endpoints, so the plugin doesn't: it mounts
+  everything on your app, exactly like `platform: "hono"` does.
+- Deploy independent Workers before the gateway. The gateway's Service
+  Bindings point at them by name; deploying the gateway first doesn't fail,
+  but requests `502` until the Workers they target exist.
 
 ## TypeScript setup
 

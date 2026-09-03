@@ -168,36 +168,66 @@ dist/
     index.html
     assets/
   server/
-    worker.mjs            # combined Worker: every endpoint (+ serverEntry app)
+    worker.mjs            # gateway: assets + forwards each endpoint to its Worker
     wrangler.toml
     functions/
       todos-get-todos/
-        index.mjs          # independent Worker for just this endpoint
+        index.mjs          # independent Worker that actually implements this endpoint
         wrangler.toml
       admin-users-delete-user/
         index.mjs
         wrangler.toml
 ```
 
-Neither Worker script serves static files itself. `dist/server/wrangler.toml`
-configures Cloudflare's own asset system to serve `dist/client` directly and
-fall back to `index.html` for unmatched `GET` requests
-(`not_found_handling = "single-page-application"`); the Worker only runs for
-the generated API prefix (`run_worker_first`). This means there is no
-Bun-specific static-file-serving code to port: Cloudflare serves assets
-faster than a Worker could, from its edge cache.
+`worker.mjs` runs no handler code at all: every `$server()`/HTTP endpoint is
+implemented *only* by its independent Worker under `functions/<name>/` (or,
+with `serverEntry`, mounted onto your app instead — see below). `worker.mjs`
+is a thin gateway with two jobs:
 
-### Combined Worker (`worker.mjs`)
+1. **Static assets.** `dist/server/wrangler.toml` configures Cloudflare's own
+   asset system to serve `dist/client` directly and fall back to
+   `index.html` for unmatched `GET` requests
+   (`not_found_handling = "single-page-application"`); the gateway only runs
+   for the generated API prefix (`run_worker_first`). No static-file-serving
+   code to write or port — Cloudflare serves assets faster than a Worker
+   could, from its edge cache.
+2. **Routing.** For the API prefix, it looks up which independent Worker
+   implements the requested endpoint and forwards the request to it via a
+   [Service Binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+   (`env.SVC_TODOS_GET_TODOS.fetch(request)`) — a same-server call with no
+   added network latency, and no manual Cloudflare Route or custom domain
+   required to reach independent Workers from one origin.
 
-- Registers generated `$server()` and HTTP helper endpoints under
-  `/{pathnameBase}/*`, using the same request/response contract as
-  `platform: "hono"`.
-- Mounts a custom Hono app when `serverEntry` is configured, so your app's own
-  middleware also runs for generated endpoints.
-- Exports the Hono app directly (`export default app`), which Cloudflare
-  Workers' module format accepts as a `fetch`-compatible handler.
+Neither the gateway nor any independent Worker uses Hono — request dispatch
+is hand-written directly against the Fetch API
+(`Request`/`Response`/`URL`). Measured on
+[`examples/basic-worker`](../examples/basic-worker) (10 tiny handlers): the
+gateway is **~1.9 KB** (just the routing table and forwarding glue — no
+handler code, no imports), each independent Worker **3–4.5 KB**, versus
+**42.8 KB** for a single Hono-based combined Worker. HTTP method handlers
+(`$get`, `$post`, ...) still receive the same `ServerContext`-shaped object
+documented in [macros](./macros.md) — `c.req.query()`, `c.req.json()`,
+`c.env`, etc. — it just isn't a real Hono `Context` anymore on this platform.
 
-Deploy it with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+### Gateway Worker (`worker.mjs`)
+
+- Serves `dist/client` and forwards `/{pathnameBase}/*` requests to the
+  independent Worker that owns each endpoint, using the same
+  request/response contract as `platform: "hono"` end to end (methods, JSON
+  body handling, status codes) — that contract is implemented by the
+  independent Worker being forwarded to, not by the gateway.
+- If an endpoint's Worker isn't deployed yet (or is down), the gateway
+  returns `502` with a message naming the endpoint, instead of crashing.
+- With `serverEntry` configured, this file is different: it mounts every
+  endpoint directly onto your Hono app instead of forwarding anywhere (no
+  independent Workers are generated in that case — see below), and exports
+  it as `export default app`. Mounting onto *your* Hono app is why
+  `serverEntry` still needs Hono even though the plugin's own codegen
+  doesn't.
+
+Deploy it with [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
+— **after** the independent Workers it forwards to, so its Service Bindings
+resolve to something real from the first request:
 
 ```bash
 cd dist/server
@@ -206,10 +236,10 @@ wrangler deploy
 
 ### Independent per-function Workers (`functions/<name>/`)
 
-Unless `serverEntry` is configured, every `$server()`/HTTP endpoint is also
-emitted as its own self-contained Worker module — a pure API Worker with no
-assets binding — so it can be deployed, scaled, and versioned independently
-of the rest:
+Unless `serverEntry` is configured, every `$server()`/HTTP endpoint is
+emitted as its own fully self-contained Worker module — the gateway forwards
+to it, but it's also a complete Worker in its own right, reachable and
+independently testable on its own:
 
 ```bash
 cd dist/server/functions/todos-get-todos
@@ -219,18 +249,16 @@ wrangler deploy
 Endpoints from the same source file that share module-level state, or call
 each other by their original name, are grouped into a single Worker together
 (the directory name joins their endpoint names), since that state cannot be
-split across separately-deployed Workers. Once that join would exceed
-Cloudflare's 63-character Worker name limit, it's truncated with a short
-stable hash suffix instead — still deterministic, just less readable at a
-glance. `examples/basic-worker` has a group large enough to show this; run
-its build and look under `dist/server/functions/` for a real one.
+split across separately-deployed Workers. Generated deployment names are
+capped at 54 characters so they also work with Wrangler's default preview
+URLs; longer names are truncated with a short stable hash suffix — still
+deterministic, just less readable at a glance. `examples/basic-worker` has a
+group large enough to show this; run its build and look under
+`dist/server/functions/` for a real one.
 
-These Workers are deployed on their own; the plugin does not wire routing
-between them and the combined Worker's origin. To keep the client's
-same-origin fetch calls (`/{pathnameBase}/<endpoint>`) working unchanged,
-attach each one to the relevant path with a
-[Cloudflare Route](https://developers.cloudflare.com/workers/configuration/routing/routes/)
-on the same domain as the combined Worker or your static site.
+The gateway's Service Bindings to these Workers are fully generated —
+there's no Cloudflare Route or custom domain to configure by hand just to
+reach them from the same origin as your site.
 
 When `serverEntry` is configured, this directory is not generated — see
 [`platform`](./configuration.md#platform) for why.
@@ -244,6 +272,10 @@ When `serverEntry` is configured, this directory is not generated — see
 - **No `compile`.** `compile: true` produces standalone Bun executables and
   is rejected at plugin setup time when combined with
   `platform: "cloudflare-worker"`.
+- **Deploy order matters.** Without `serverEntry`, the gateway's Service
+  Bindings point at the independent Workers by name — deploy those first.
+  Deploying the gateway before them doesn't fail, but requests fail with a
+  `502` until the Workers they target exist.
 - **Runtime-only globals are still your responsibility.** Handlers that
   reference `Bun`, `process`, or Node built-ins run fine on `platform: "hono"`
   but will fail on Cloudflare Workers unless the API is available there (for
@@ -275,63 +307,92 @@ When `serverEntry` is configured, this directory is not generated — see
    vite build
    ```
 
-   This writes `dist/client`, `dist/server/worker.mjs` +
-   `dist/server/wrangler.toml`, and (unless `serverEntry` is configured)
-   `dist/server/functions/<name>/`.
+   This writes `dist/client`, `dist/server/functions/<name>/` (unless
+   `serverEntry` is configured), and the gateway at `dist/server/worker.mjs`
+   + `dist/server/wrangler.toml`.
 
-4. Deploy the combined Worker — serves every endpoint plus the client build:
+4. Deploy every independent Worker **first** — the gateway's Service
+   Bindings need them to already exist:
+
+   ```bash
+   for dir in dist/server/functions/*/; do
+     npx wrangler deploy --config "$dir/wrangler.toml"
+   done
+   ```
+
+5. Then deploy the gateway, which serves the client build and forwards API
+   requests to whatever you deployed in step 4:
 
    ```bash
    npx wrangler deploy --config dist/server/wrangler.toml
    ```
 
    The first deploy prints a `*.workers.dev` URL; that's your app. Re-run
-   steps 3–4 for every subsequent deploy — build always comes first, since
-   `wrangler.toml` is generated fresh each time (see the note on
+   steps 3–5 for every subsequent deploy — build always comes first, since
+   `wrangler.toml` is generated fresh each time (see
    [bindings and secrets](#bindings-secrets-and-custom-domains) below).
 
-5. Optionally, deploy one or more independent per-function Workers the same
-   way, each from its own generated directory:
+With `serverEntry` configured, there's nothing to loop over — step 4
+generates no independent Workers, and step 5 is the only deploy.
 
-   ```bash
-   npx wrangler deploy --config dist/server/functions/todos-get-todos/wrangler.toml
-   ```
+#### Testing Service Bindings locally
 
-   Wire routing from your main domain to it separately — see
-   [Independent per-function Workers](#independent-per-function-workers-functionsname) above.
+`wrangler dev` accepts multiple `--config`/`-c` flags to run several Workers
+in one local session, resolving Service Bindings between them the same way
+they resolve in production:
+
+```bash
+npx wrangler dev \
+  -c dist/server/wrangler.toml \
+  -c dist/server/functions/todos-get-todos/wrangler.toml \
+  -c dist/server/functions/admin-users-delete-user/wrangler.toml \
+  # ...one -c per functions/<name>/wrangler.toml
+```
+
+`examples/basic-worker`'s `npm run preview` only starts the gateway, so
+requests to endpoints 404 through it locally unless you also list every
+`functions/<name>/wrangler.toml` this way (or `cd` into one and run
+`wrangler dev` there directly, bypassing the gateway entirely).
 
 #### Bindings, secrets, and custom domains
 
-`dist/server/wrangler.toml` is fully regenerated on every build — the plugin
-only knows about `name`, `main`, `compatibility_date`, and the assets
-config. It does not (yet) have a way to merge in extra Wrangler
-configuration, so:
+Every generated `wrangler.toml` — the gateway's and each independent
+Worker's — is fully regenerated on every build, and the plugin only knows
+about `name`, `main`, `compatibility_date`, and (for the gateway) the assets
+and Service Bindings config. It does not (yet) have a way to merge in extra
+Wrangler configuration, so:
 
+- **Add bindings and secrets to the specific Worker that needs them** — a
+  KV/D1 binding a handler reads belongs on *that handler's* independent
+  Worker (`dist/server/functions/<name>/wrangler.toml`), not the gateway,
+  since the gateway never runs handler code. A custom domain or route
+  belongs on the gateway, since that's the public entry point.
 - **Secrets** (API keys, tokens, connection strings) should go through
   [`wrangler secret put NAME`](https://developers.cloudflare.com/workers/configuration/secrets/)
-  instead of the config file. Secrets are stored server-side and survive
-  every future `wrangler deploy` regardless of what's in `wrangler.toml`, so
-  you only need to set them once. Read them from handlers via the Hono
-  context's `c.env` (available on HTTP method handlers; not on plain
-  `$server()` handlers, which don't receive a context — use an `$get()`/
-  `$post()` handler if a call needs bindings or secrets).
-- **KV/D1/R2 bindings, `[vars]`, and `[[routes]]`/custom domains** are
-  declared in `wrangler.toml` itself, so add them to the generated
-  `dist/server/wrangler.toml` after each build and before each deploy (a
-  small post-build script that appends the extra TOML works well in CI).
-  Unlike secrets, plain `[vars]` **are** replaced by whatever the deployed
-  config contains — pass `--keep-vars` to `wrangler deploy` if you set vars
-  through the dashboard and want a build without them in `wrangler.toml` to
-  leave those alone.
+  instead of the config file, run against the specific Worker that needs
+  them (`wrangler secret put NAME --config dist/server/functions/<name>/wrangler.toml`).
+  Secrets are stored server-side and survive every future `wrangler deploy`
+  regardless of what's in `wrangler.toml`, so you only need to set them
+  once. Read them from handlers via `c.env` (available on HTTP method
+  handlers; not on plain `$server()` handlers, which don't receive a
+  context object at all — use an `$get()`/`$post()` handler if a call needs
+  bindings or secrets).
+- **KV/D1/R2 bindings and `[vars]`** are declared in `wrangler.toml` itself,
+  so add them to the relevant generated file after each build and before
+  each deploy (a small post-build script that appends the extra TOML works
+  well in CI). Unlike secrets, plain `[vars]` **are** replaced by whatever
+  the deployed config contains — pass `--keep-vars` to `wrangler deploy` if
+  you set vars through the dashboard and want a build without them in
+  `wrangler.toml` to leave those alone.
 - A [custom domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
-  is just a `[[routes]]` entry with `custom_domain = true`, added the same
-  way.
+  is a `[[routes]]` entry with `custom_domain = true` on the **gateway's**
+  `wrangler.toml`, added the same way.
 
 #### CI/CD
 
-Any CI system works as long as it builds first, then runs `wrangler deploy`
-with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set. For example,
-with GitHub Actions:
+Any CI system works as long as it builds first, deploys every independent
+Worker, then deploys the gateway, with `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` set. For example, with GitHub Actions:
 
 ```yaml
 name: Deploy to Cloudflare Workers
@@ -348,7 +409,16 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npx vite build
-      - run: npx wrangler deploy --config dist/server/wrangler.toml
+      - name: Deploy independent Workers
+        run: |
+          for dir in dist/server/functions/*/; do
+            npx wrangler deploy --config "$dir/wrangler.toml"
+          done
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Deploy gateway
+        run: npx wrangler deploy --config dist/server/wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

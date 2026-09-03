@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { hash } from "../utils/crypto";
 
-const MAX_WORKER_NAME_LENGTH = 63;
+// Cloudflare accepts Worker names up to 63 characters, but Wrangler enables
+// preview URLs by default and those require script names of at most 54.
+const MAX_WORKER_NAME_LENGTH = 54;
 
 function sanitizeWorkerNameSegment(input: string): string {
   return input
@@ -47,12 +49,29 @@ export function slugForEndpoints(endpoints: string[]): string {
   return `${base.slice(0, 40)}-${hash(endpoints.join("|"))}`;
 }
 
-/** Combines a base name with an optional suffix, keeping the result within Cloudflare's Worker name length limit. */
+/** Combines a base name with an optional suffix, keeping the result compatible with Wrangler preview URLs. */
 export function workerName(base: string, suffix?: string): string {
   const full = suffix ? `${base}-${suffix}` : base;
   const sanitized = sanitizeWorkerNameSegment(full) || "server-build";
   if (sanitized.length <= MAX_WORKER_NAME_LENGTH) return sanitized;
-  return `${sanitized.slice(0, MAX_WORKER_NAME_LENGTH - 9)}-${hash(full)}`;
+  const prefix = sanitized
+    .slice(0, MAX_WORKER_NAME_LENGTH - 9)
+    .replace(/-+$/g, "");
+  return `${prefix}-${hash(full)}`;
+}
+
+/**
+ * Derives a valid, deterministic Service Binding name (a JS identifier
+ * usable as `env.<NAME>`) for the independent Worker that owns `slug`. Used
+ * by the gateway Worker to forward requests to it — see
+ * {@link AggregateWranglerConfigOptions.services}.
+ */
+export function serviceBindingName(slug: string): string {
+  const upper = slug
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return `SVC_${upper || "HANDLER"}`;
 }
 
 /** Today's date as `YYYY-MM-DD`, the format Cloudflare requires for `compatibility_date`. */
@@ -73,18 +92,28 @@ export interface AggregateWranglerConfigOptions {
   /** Generated API prefix, e.g. `/__server-build/`. */
   apiPrefix: string;
   compatibilityDate: string;
+  /**
+   * Service Bindings to every independent per-function Worker, so the
+   * gateway can forward requests to them with no added network latency and
+   * no manual routing setup. Omitted (or empty) when `serverEntry` is
+   * configured — there are no independent Workers to forward to in that
+   * case, since everything is mounted on the custom app instead.
+   */
+  services?: Array<{ binding: string; service: string }>;
 }
 
 /**
  * Generates the `wrangler.toml` for the combined Worker: static assets are
  * served directly by Cloudflare (with SPA fallback to `index.html`), and the
- * Worker only runs for the generated API prefix.
+ * Worker only runs for the generated API prefix — where, without
+ * `serverEntry`, it forwards to the independent per-function Workers via the
+ * `services` bindings below rather than running handler code itself.
  */
 export function generateAggregateWranglerConfig(
   options: AggregateWranglerConfigOptions,
 ): string {
   const apiGlob = `${options.apiPrefix}*`;
-  return [
+  const lines = [
     `name = ${tomlString(options.name)}`,
     `main = ${tomlString(options.main)}`,
     `compatibility_date = ${tomlString(options.compatibilityDate)}`,
@@ -97,8 +126,27 @@ export function generateAggregateWranglerConfig(
     `binding = "ASSETS"`,
     `not_found_handling = "single-page-application"`,
     `run_worker_first = [${tomlString(apiGlob)}]`,
-    "",
-  ].join("\n");
+  ];
+
+  if (options.services && options.services.length > 0) {
+    lines.push(
+      "",
+      "# Forwards each endpoint to the independent Worker that implements it",
+      "# (dist/server/functions/<name>/). Deploy those before this gateway —",
+      "# see docs/runtime-and-deployment.md#deployment-checklist.",
+    );
+    for (const service of options.services) {
+      lines.push(
+        "",
+        "[[services]]",
+        `binding = ${tomlString(service.binding)}`,
+        `service = ${tomlString(service.service)}`,
+      );
+    }
+  }
+
+  lines.push("");
+  return lines.join("\n");
 }
 
 export interface FunctionWranglerConfigOptions {

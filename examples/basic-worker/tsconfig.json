@@ -3,7 +3,12 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client", "vite-plugin-server-sugar/server", "node"],
+    "types": [
+      "vite/client",
+      "vite-plugin-server-sugar/server",
+      "@cloudflare/workers-types",
+      "node"
+    ],
     "skipLibCheck": true,
 
     /* Bundler mode */

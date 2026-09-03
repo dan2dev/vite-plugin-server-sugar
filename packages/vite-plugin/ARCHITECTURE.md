@@ -59,9 +59,10 @@ src/
     ws-upgrade.ts              dev WebSocket upgrade handling
   build/
     platform.ts                 `platform` option validation
-    handler-emitter.ts          shared codegen: imports, handler decls, RPC dispatch
+    handler-emitter.ts          shared codegen: imports, handler decls, Hono RPC dispatch
     bundle-generator.ts         generated Bun + Hono production server source
     cloudflare-bundle-generator.ts  generated Cloudflare Worker module(s)
+    cloudflare-dispatch.ts      Hono-free RPC dispatch for Cloudflare Workers
     wrangler-config.ts          generated `wrangler.toml` content
     bundler.ts                  rolldown bundling and Bun compilation
   utils/
@@ -250,25 +251,53 @@ Handled by `writeCloudflareOutput` in `plugin.ts`, using
 [`build/cloudflare-bundle-generator.ts`](./src/build/cloudflare-bundle-generator.ts)
 and [`build/wrangler-config.ts`](./src/build/wrangler-config.ts):
 
-1. Generate the combined Worker source (every endpoint, plus the
-   `serverEntry` app if configured) and bundle it into
-   `dist/server/worker.mjs`, alongside a generated `dist/server/wrangler.toml`.
-2. Unless `serverEntry` is configured, generate one independent Worker module
-   per endpoint — or per group of same-file endpoints that share
+1. **Without `serverEntry`**: generate the independent Workers first — one
+   per endpoint, or per group of same-file endpoints that share
    module-level state or reference each other by name, since that state
    cannot span separate Worker deployments — under
    `dist/server/functions/<slug>/index.mjs`, each with its own
-   `wrangler.toml`.
+   `wrangler.toml`. Their names are computed here
+   (`workerName(projectName, slug)`) because the next step needs them.
+2. Generate `dist/server/worker.mjs` + `dist/server/wrangler.toml`. **With
+   `serverEntry`**, this mounts every endpoint onto the user's app (see
+   below). **Without it**, this is a thin gateway that forwards each
+   endpoint to the independent Worker that implements it — it does not run
+   handler code and is not built from the registry's handler bodies at all,
+   just the endpoint → Worker-name mapping from step 1. The generated
+   `wrangler.toml` gets a `[[services]]` Service Binding per independent
+   Worker (`serviceBindingName(slug)` → its deployed name) so the forward
+   is a same-server call, with no manual Cloudflare Route or custom domain
+   needed to reach independent Workers from one origin.
 
-Both generators share the platform-agnostic parts of codegen — import
-aliasing, per-file handler declarations, the `__serverHandlers` lookup table,
-and the RPC dispatch route — via
-[`build/handler-emitter.ts`](./src/build/handler-emitter.ts), so the request
-contract (methods, status codes, JSON body handling) stays identical across
-platforms. The Cloudflare output never emits static-file-serving code or a
-`serve()` call: static assets are served by Cloudflare's own asset system
-(configured in the generated `wrangler.toml`), and a Worker module just
-exports `app` as its `fetch`-compatible default.
+`generateCloudflareFunctionBundles` (step 1) and the `serverEntry` branch of
+`generateCloudflareWorkerBundle` (step 2) share the platform-agnostic parts
+of codegen — import aliasing and per-file handler declarations — via
+[`build/handler-emitter.ts`](./src/build/handler-emitter.ts), which also
+provides the `__serverHandlers` lookup table and the Hono-flavored RPC
+dispatch route (`emitApiDispatchRoute`) used by `platform: "hono"` and by
+`platform: "cloudflare-worker"` when `serverEntry` is configured — mounting
+onto a user-supplied app inherently means routing through *their* Hono app.
+
+Independent Workers don't use Hono at all:
+[`build/cloudflare-dispatch.ts`](./src/build/cloudflare-dispatch.ts)'s
+`emitCloudflareDispatch` is an equivalent dispatch route (same
+request/response contract: methods, status codes, JSON body handling)
+written directly against `Request`/`Response`, paired with a
+`__serverContext` helper mirroring
+[`dev-server/middleware.ts`](./src/dev-server/middleware.ts)'s
+`createServerContext` (extended with `env`/`executionCtx` so handlers can
+read Cloudflare bindings and secrets via `c.env`). The gateway (without
+`serverEntry`) uses a third, even thinner route from the same file —
+`emitCloudflareGatewayDispatch` — which has no handler-related codegen to
+share at all: just a generated `endpoint → binding` table and a
+`service.fetch(request)` forward, wrapped in a `try`/`catch` that turns an
+undeployed or unreachable target Worker into a `502` instead of an
+unhandled error. This is why splitting into independent per-function
+Workers is cheap and the gateway shrinks as a result: see
+[Cloudflare Workers output](../../docs/runtime-and-deployment.md#cloudflare-workers-output)
+for measured sizes. The Cloudflare output never emits static-file-serving
+code or a `serve()` call either way: static assets are served by
+Cloudflare's own asset system, configured in the generated `wrangler.toml`.
 
 `$ws()` is rejected for this platform (with a descriptive build error): the
 existing broadcast implementation relies on an in-memory `Map`, which is not

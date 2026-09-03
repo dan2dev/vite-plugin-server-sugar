@@ -4,15 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite build && wrangler dev --config dist/server/wrangler.toml",
-    "deploy": "vite build && wrangler deploy --config dist/server/wrangler.toml"
-  },
-  "dependencies": {
-    "hono": "^4.12.30"
+    "dev": "npm run build && node scripts/local.mjs",
+    "build": "tsc && vite build && node scripts/configure-d1.mjs",
+    "preview": "npm run dev",
+    "deploy": "npm run build && node scripts/deploy.mjs"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
     "@types/node": "^24.13.3",
     "typescript": "~6.0.3",
     "vite": "^8.1.4",

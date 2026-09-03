@@ -387,18 +387,29 @@ serverBuildPlugin({
 });
 ```
 
-Instead of a Bun server, this emits Cloudflare Workers-compatible ES modules:
-a combined `dist/server/worker.mjs` (+ `wrangler.toml`) serving every
-endpoint, and — unless `serverEntry` is configured — an independent Worker
-per endpoint (or per group of endpoints sharing module-level state) under
-`dist/server/functions/<name>/`, each deployable on its own. Static assets
-are served by Cloudflare's own asset system, not bundled into the Worker.
-`$ws()` and `compile` are not supported on this platform.
+Instead of a Bun server, this emits Cloudflare Workers-compatible ES modules
+— and unless `serverEntry` is configured, each `$server()`/HTTP endpoint (or
+group of endpoints sharing module-level state) becomes its own independent,
+fully self-contained Worker under `dist/server/functions/<name>/`.
+`dist/server/worker.mjs` (+ `wrangler.toml`) becomes a thin gateway: it
+serves static assets from Cloudflare's own asset system (not bundled into
+the Worker) and forwards API requests to whichever independent Worker
+implements them via a generated
+[Service Binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
+— a same-server call, no manual routing or custom domain needed to reach
+them from one origin. None of it uses Hono (unless you configure
+`serverEntry`) — dispatch is hand-written against the Fetch API, so the
+gateway and every independent Worker stay a few KB. `$ws()` and `compile`
+are not supported on this platform.
 
-Deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+Deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
+— independent Workers first, since the gateway forwards to them by name:
 
 ```bash
 npx wrangler login       # once per machine; CI uses an API token instead
+for dir in dist/server/functions/*/; do
+  npx wrangler deploy --config "$dir/wrangler.toml"
+done
 npx wrangler deploy --config dist/server/wrangler.toml
 ```
 

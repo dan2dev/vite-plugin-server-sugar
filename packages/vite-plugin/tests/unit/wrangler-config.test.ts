@@ -6,6 +6,7 @@ import {
   generateAggregateWranglerConfig,
   generateFunctionWranglerConfig,
   resolveProjectName,
+  serviceBindingName,
   slugForEndpoints,
   todayCompatibilityDate,
   workerName,
@@ -80,9 +81,24 @@ describe('workerName', () => {
     expect(workerName('server-build')).toBe('server-build');
   });
 
-  it('keeps the result within Cloudflare Worker name length limits', () => {
+  it('keeps the result within the Wrangler preview URL name limit', () => {
     const name = workerName('server-build', 'x'.repeat(100));
-    expect(name.length).toBeLessThanOrEqual(63);
+    expect(name.length).toBeLessThanOrEqual(54);
+    expect(name).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+  });
+});
+
+describe('serviceBindingName', () => {
+  it('produces a valid, uppercase JS-identifier-safe binding name', () => {
+    expect(serviceBindingName('todos-get-todos')).toBe('SVC_TODOS_GET_TODOS');
+  });
+
+  it('is deterministic for the same slug', () => {
+    expect(serviceBindingName('counter-increment')).toBe(serviceBindingName('counter-increment'));
+  });
+
+  it('produces distinct names for distinct slugs', () => {
+    expect(serviceBindingName('todos-get-todos')).not.toBe(serviceBindingName('users-get-user'));
   });
 });
 
@@ -122,6 +138,39 @@ describe('generateAggregateWranglerConfig', () => {
     });
 
     expect(toml).toContain('run_worker_first = ["/rpc/*"]');
+  });
+
+  it('omits [[services]] when there are no independent Workers to forward to', () => {
+    const toml = generateAggregateWranglerConfig({
+      name: 'server-build',
+      main: 'worker.mjs',
+      assetsDirectory: '../client',
+      apiPrefix: '/__server-build/',
+      compatibilityDate: '2026-01-01',
+    });
+
+    expect(toml).not.toContain('[[services]]');
+  });
+
+  it('adds one [[services]] block per independent Worker to forward to', () => {
+    const toml = generateAggregateWranglerConfig({
+      name: 'server-build',
+      main: 'worker.mjs',
+      assetsDirectory: '../client',
+      apiPrefix: '/__server-build/',
+      compatibilityDate: '2026-01-01',
+      services: [
+        { binding: 'SVC_TODOS_GET_TODOS', service: 'server-build-todos-get-todos' },
+        { binding: 'SVC_COUNTER_INCREMENT', service: 'server-build-counter-increment' },
+      ],
+    });
+
+    const matches = toml.match(/\[\[services\]\]/g);
+    expect(matches).toHaveLength(2);
+    expect(toml).toContain('binding = "SVC_TODOS_GET_TODOS"');
+    expect(toml).toContain('service = "server-build-todos-get-todos"');
+    expect(toml).toContain('binding = "SVC_COUNTER_INCREMENT"');
+    expect(toml).toContain('service = "server-build-counter-increment"');
   });
 });
 

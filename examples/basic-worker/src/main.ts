@@ -18,7 +18,7 @@ app.innerHTML = `
     </p>
 
     <section>
-      <h2>Todos <small>one Worker: listTodos/addTodo/toggleTodo/deleteTodo share the "todos" array</small></h2>
+      <h2>Todos <small>persisted in a local or deployed Cloudflare D1 database</small></h2>
       <form id="todo-form">
         <input id="todo-text" placeholder="What needs doing?" required />
         <button type="submit">Add</button>
@@ -75,7 +75,7 @@ todoForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = todoText.value.trim();
   if (!text) return;
-  await addTodo(text);
+  await addTodo({ text });
   todoText.value = "";
   await refreshTodos();
 });
@@ -85,13 +85,13 @@ todoList.addEventListener("click", async (event) => {
 
   const deleteId = target.dataset.delete;
   if (deleteId) {
-    await deleteTodo(Number(deleteId));
+    await deleteTodo({ id: deleteId });
     await refreshTodos();
     return;
   }
 
   if (target instanceof HTMLInputElement && target.dataset.id) {
-    await toggleTodo(Number(target.dataset.id));
+    await toggleTodo({ id: Number(target.dataset.id) });
     await refreshTodos();
   }
 });

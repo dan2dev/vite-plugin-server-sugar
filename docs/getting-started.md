@@ -186,20 +186,26 @@ serverBuildPlugin({
 });
 ```
 
-This generates Cloudflare Workers-compatible modules and a `wrangler.toml`
-instead of a Bun server — including, optionally, an independent Worker per
-`$server()`/HTTP endpoint.
+This generates Cloudflare Workers-compatible modules instead of a Bun
+server: each `$server()`/HTTP endpoint becomes its own independent Worker,
+and `dist/server/worker.mjs` becomes a thin gateway that serves your client
+build and forwards API requests to whichever independent Worker implements
+them.
 
-Build, then deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+Build, then deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/)
+— independent Workers first, since the gateway forwards to them by name:
 
 ```bash
 npm install -D wrangler
 npx wrangler login       # once per machine; skip in CI, use an API token instead
 vite build
+for dir in dist/server/functions/*/; do
+  npx wrangler deploy --config "$dir/wrangler.toml"
+done
 npx wrangler deploy --config dist/server/wrangler.toml
 ```
 
-The first deploy prints your app's `*.workers.dev` URL. See
+The last deploy prints your app's `*.workers.dev` URL. See
 [Runtime and deployment](./runtime-and-deployment.md#deployment-checklist)
 for the full deployment checklist — CI/CD, secrets, bindings, custom
 domains — plus the output layout and constraints (`$ws()` and `compile` are

@@ -53,6 +53,7 @@ import {
   generateAggregateWranglerConfig,
   generateFunctionWranglerConfig,
   resolveProjectName,
+  serviceBindingName,
   todayCompatibilityDate,
   workerName,
 } from "./build/wrangler-config";
@@ -173,48 +174,12 @@ export function createServerBuildPlugin(
    * `dist/server/functions/<slug>/`.
    */
   async function writeCloudflareOutput(): Promise<void> {
-    const worker = generateCloudflareWorkerBundle(
-      registry,
-      serverEntry,
-      serverEntryPath,
-      serverOutDir,
-      wsRegistry,
-      endpointPaths,
-    );
-    if (!worker) return;
-
     const projectName = resolveProjectName(root);
     const compatibilityDate = todayCompatibilityDate();
 
-    const workerOutfile = await bundleCloudflareWorkerSource(
-      worker,
-      serverOutDir,
-      "worker.mjs",
-      root,
-    );
-    const assetsDirectory = normalizePath(relative(serverOutDir, clientOutDir));
-    writeFileSync(
-      join(serverOutDir, "wrangler.toml"),
-      generateAggregateWranglerConfig({
-        name: workerName(projectName),
-        main: "worker.mjs",
-        assetsDirectory,
-        apiPrefix: endpointPaths.apiPrefix,
-        compatibilityDate,
-      }),
-      "utf-8",
-    );
-    console.log(
-      `[server-build] Wrote Cloudflare Worker to ${normalizePath(relative(root, workerOutfile))}.`,
-    );
-
-    if (serverEntry && registry.size > 0) {
-      console.log(
-        "[server-build] Skipping independent per-function Workers because serverEntry is configured; " +
-          "all endpoints are mounted on the custom app in dist/server/worker.mjs instead.",
-      );
-    }
-
+    // Independent Workers are generated first: without serverEntry, the
+    // combined Worker is a gateway that forwards to them by name, so their
+    // names must be known before it can be built.
     const functions = generateCloudflareFunctionBundles(
       registry,
       serverEntry,
@@ -222,6 +187,22 @@ export function createServerBuildPlugin(
       wsRegistry,
       endpointPaths,
     );
+    const gatewayRoutes = functions.map((fn) => ({
+      endpoints: fn.endpoints,
+      binding: serviceBindingName(fn.slug),
+      workerName: workerName(projectName, fn.slug),
+    }));
+
+    const worker = generateCloudflareWorkerBundle(
+      registry,
+      serverEntry,
+      serverEntryPath,
+      serverOutDir,
+      wsRegistry,
+      endpointPaths,
+      gatewayRoutes,
+    );
+    if (!worker) return;
 
     for (const fn of functions) {
       const fnDir = join(serverOutDir, "functions", fn.slug);
@@ -242,6 +223,42 @@ export function createServerBuildPlugin(
         `[server-build] Wrote ${functions.length} independent Cloudflare Worker function${functions.length === 1 ? "" : "s"} to ${normalizePath(relative(root, join(serverOutDir, "functions")))}.`,
       );
     }
+
+    if (serverEntry && registry.size > 0) {
+      console.log(
+        "[server-build] Skipping independent per-function Workers because serverEntry is configured; " +
+          "all endpoints are mounted on the custom app in dist/server/worker.mjs instead.",
+      );
+    }
+
+    const workerOutfile = await bundleCloudflareWorkerSource(
+      worker,
+      serverOutDir,
+      "worker.mjs",
+      root,
+    );
+    const assetsDirectory = normalizePath(relative(serverOutDir, clientOutDir));
+    writeFileSync(
+      join(serverOutDir, "wrangler.toml"),
+      generateAggregateWranglerConfig({
+        name: workerName(projectName),
+        main: "worker.mjs",
+        assetsDirectory,
+        apiPrefix: endpointPaths.apiPrefix,
+        compatibilityDate,
+        services: gatewayRoutes.map((route) => ({
+          binding: route.binding,
+          service: route.workerName,
+        })),
+      }),
+      "utf-8",
+    );
+    console.log(
+      `[server-build] Wrote Cloudflare Worker to ${normalizePath(relative(root, workerOutfile))}` +
+        (gatewayRoutes.length > 0
+          ? ". Deploy the independent functions above before this one — it forwards to them via Service Bindings."
+          : "."),
+    );
   }
 
   const plugin: UniversalPlugin = {

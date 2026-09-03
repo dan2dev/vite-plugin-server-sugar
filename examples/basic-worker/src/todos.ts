@@ -1,15 +1,9 @@
-// ── $server() endpoints that share in-memory state ──
+// ── HTTP endpoints backed by Cloudflare D1 ──
 //
-// `listTodos`, `addTodo`, `toggleTodo`, and `deleteTodo` all close over the
-// same `todos` array. Because that module-level state can't be split across
-// separate Worker deployments, the plugin groups every handler in this file
-// into ONE independent Cloudflare Worker
-// (dist/server/functions/todos-*/index.mjs) instead of one per endpoint.
-//
-// State lives in the Worker's memory, so it resets whenever Cloudflare
-// recycles the isolate — the same caveat as an in-memory array on any
-// serverless platform. Swap it for D1, KV, or another storage binding for
-// anything that needs to persist.
+// Plain $server() handlers only receive their declared arguments. HTTP method
+// handlers receive a ServerContext as well, whose Cloudflare implementation
+// exposes bindings on `c.env`. The post-build script adds the DB binding to
+// this generated Worker's wrangler.toml.
 
 export interface Todo {
   id: number;
@@ -17,32 +11,74 @@ export interface Todo {
   done: boolean;
 }
 
-let todos: Todo[] = [];
-let nextId = 1;
+interface TodoRow {
+  id: number;
+  text: string;
+  done: number;
+}
 
-export const listTodos = $server(async () => todos);
+interface WorkerBindings {
+  DB: D1Database;
+}
 
-export const addTodo = $server(async (text: string) => {
-  const todo: Todo = { id: nextId++, text, done: false };
-  todos.push(todo);
-  return todo;
+function database<
+  TBody,
+  TQuery extends Record<string, string>,
+>(c: ServerContext<TBody, TQuery>): D1Database {
+  return (c as ServerContext<TBody, TQuery> & { env: WorkerBindings }).env.DB;
+}
+
+function toTodo(row: TodoRow): Todo {
+  return { ...row, done: row.done === 1 };
+}
+
+export const listTodos = $get(async (c) => {
+  const { results } = await database(c)
+    .prepare("SELECT id, text, done FROM todos ORDER BY id")
+    .all<TodoRow>();
+  return results.map(toTodo);
 });
 
-export const toggleTodo = $server(async (id: number) => {
-  todos = todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));
-  return todos.find((todo) => todo.id === id) ?? null;
+export const addTodo = $post(async (c: ServerContext<{ text: string }>) => {
+  const { text } = await c.req.json();
+  const row = await database(c)
+    .prepare("INSERT INTO todos (text) VALUES (?) RETURNING id, text, done")
+    .bind(text)
+    .first<TodoRow>();
+
+  if (!row) throw new Error("D1 did not return the new todo");
+  return toTodo(row);
 });
 
-export const deleteTodo = $server(async (id: number) => {
-  todos = todos.filter((todo) => todo.id !== id);
-  return { deleted: true, id };
+export const toggleTodo = $patch(async (c: ServerContext<{ id: number }>) => {
+  const { id } = await c.req.json();
+  const row = await database(c)
+    .prepare(
+      "UPDATE todos SET done = CASE done WHEN 0 THEN 1 ELSE 0 END WHERE id = ? RETURNING id, text, done",
+    )
+    .bind(id)
+    .first<TodoRow>();
+  return row ? toTodo(row) : null;
 });
 
-// ── $get(): HTTP method helpers work the same as platform: "hono" ──
+export const deleteTodo = $delete(
+  async (c: ServerContext<never, { id: string }>) => {
+    const id = Number(c.req.query("id"));
+    const result = await database(c)
+      .prepare("DELETE FROM todos WHERE id = ?")
+      .bind(id)
+      .run();
+    return { deleted: result.meta.changes > 0, id };
+  },
+);
 
 export const todoCount = $get(async (c: ServerContext<never, { done?: string }>) => {
   const done = c.req.query("done");
-  if (done === undefined) return { count: todos.length };
-  const want = done === "true";
-  return { count: todos.filter((todo) => todo.done === want).length };
+  const statement = done === undefined
+    ? database(c).prepare("SELECT COUNT(*) AS count FROM todos")
+    : database(c)
+      .prepare("SELECT COUNT(*) AS count FROM todos WHERE done = ?")
+      .bind(done === "true" ? 1 : 0);
+  const row = await statement.first<{ count: number }>();
+  return { count: row?.count ?? 0 };
 });
