@@ -2,16 +2,12 @@
 
 ## TypeScript cannot find `$server`, `$ws`, or `$worker`
 
-Add the macro declaration subpaths to `tsconfig.json`:
+Add the unified macro declaration entrypoint to `tsconfig.json`:
 
 ```json
 {
   "compilerOptions": {
-    "types": [
-      "vite-plugin-server-sugar/server",
-      "vite-plugin-server-sugar/ws",
-      "vite-plugin-server-sugar/worker"
-    ]
+    "types": ["vite-plugin-server-sugar/types"]
   }
 }
 ```

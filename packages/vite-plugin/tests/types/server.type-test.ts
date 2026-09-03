@@ -1,5 +1,10 @@
 /// <reference path="../../server.d.ts" />
 import { describe, expectTypeOf, it } from 'vitest';
+import type {
+  BodyServerFunction,
+  ServerContext as ImportedServerContext,
+  ServerFunction,
+} from '../../server';
 
 /**
  * Type tests for $server() type inference.
@@ -27,6 +32,34 @@ describe('server type inference', () => {
     // Nested Promise should be flattened via Awaited
     const nestedPromise = $server(async () => Promise.resolve(42));
     expectTypeOf(nestedPromise).returns.toEqualTypeOf<Promise<number>>();
+  });
+
+  it('preserves optional and rest parameter tuples', () => {
+    const optional = $server((id: string, includeDeleted?: boolean) => ({ id, includeDeleted }));
+    expectTypeOf(optional).parameters.toEqualTypeOf<[
+      id: string,
+      includeDeleted?: boolean,
+    ]>();
+
+    const variadic = $server((prefix: string, ...values: number[]) =>
+      values.map((value) => `${prefix}${value}`),
+    );
+    expectTypeOf(variadic).parameters.toEqualTypeOf<[
+      prefix: string,
+      ...values: number[],
+    ]>();
+    expectTypeOf(variadic).returns.toEqualTypeOf<Promise<string[]>>();
+  });
+
+  it('exposes reusable named types without losing the ambient macro API', () => {
+    const fn = $server(async (id: string) => ({ id, found: true as const }));
+    expectTypeOf(fn).toEqualTypeOf<
+      ServerFunction<[id: string], { id: string; found: true }>
+    >();
+
+    expectTypeOf<ImportedServerContext<{ name: string }>>().toEqualTypeOf<
+      ServerContext<{ name: string }>
+    >();
   });
 
   it('produces compile error when passing non-function to $server()', () => {
@@ -66,6 +99,39 @@ describe('$get type inference', () => {
     fn();
   });
 
+  it('accepts named query interfaces and preserves optional query fields', () => {
+    interface SearchQuery {
+      q: string;
+      cursor?: string;
+    }
+
+    const fn = $get(async (c: ServerContext<never, SearchQuery>) => ({
+      q: c.req.query('q'),
+      cursor: c.req.query('cursor'),
+    }));
+
+    expectTypeOf(fn).parameters.toEqualTypeOf<[
+      query: SearchQuery,
+      options?: FetchOptions,
+    ]>();
+    expectTypeOf(fn).returns.toEqualTypeOf<
+      Promise<{ q: string; cursor: string | undefined }>
+    >();
+    fn({ q: 'types' });
+    fn({ q: 'types', cursor: 'next' });
+    // @ts-expect-error required query field is missing
+    fn({ cursor: 'next' });
+  });
+
+  it('rejects non-string query fields', () => {
+    interface InvalidQuery {
+      page: number;
+    }
+
+    // @ts-expect-error URL query values must be strings
+    $get(async (c: ServerContext<never, InvalidQuery>) => c.req.query('page'));
+  });
+
   it('infers FetchOptions shape correctly', () => {
     const fn = $get(async (c) => 'ok');
     // @ts-expect-error headers must be Record<string, string>
@@ -99,6 +165,28 @@ describe('$post type inference', () => {
     fn({ name: 'test' });
     fn({ name: 'test' }, { sort: 'asc' });
     fn({ name: 'test' }, undefined, { headers: { Authorization: 'Bearer x' } });
+  });
+
+  it('matches the exported body client utility type', () => {
+    interface Body {
+      name: string;
+    }
+    interface Query {
+      dryRun?: string;
+    }
+
+    const fn = $post(async (c: ServerContext<Body, Query>) => {
+      const body = await c.req.json();
+      return { name: body.name, dryRun: c.req.query('dryRun') };
+    });
+
+    expectTypeOf(fn).toEqualTypeOf<
+      BodyServerFunction<
+        Body,
+        Query,
+        { name: string; dryRun: string | undefined }
+      >
+    >();
   });
 });
 

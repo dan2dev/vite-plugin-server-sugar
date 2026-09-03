@@ -48,17 +48,13 @@ mounted at `/__server-build/<endpoint>` and WebSocket endpoints are mounted at
 
 ## Add macro types
 
-The macros are ambient compile-time globals. Add the declaration subpaths to
-`tsconfig.json`:
+The macros are ambient compile-time globals. Add the unified declaration
+entrypoint to `tsconfig.json`:
 
 ```json
 {
   "compilerOptions": {
-    "types": [
-      "vite-plugin-server-sugar/server",
-      "vite-plugin-server-sugar/ws",
-      "vite-plugin-server-sugar/worker"
-    ]
+    "types": ["vite-plugin-server-sugar/types"]
   }
 }
 ```

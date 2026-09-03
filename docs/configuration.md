@@ -197,16 +197,12 @@ Constraints:
 
 ## TypeScript setup
 
-Add only the macro declaration files you use:
+Load all macro declarations with one type entry:
 
 ```json
 {
   "compilerOptions": {
-    "types": [
-      "vite-plugin-server-sugar/server",
-      "vite-plugin-server-sugar/ws",
-      "vite-plugin-server-sugar/worker"
-    ]
+    "types": ["vite-plugin-server-sugar/types"]
   }
 }
 ```

@@ -30,16 +30,16 @@
   },
   "exports": {
     ".": {
-      "import": "./dist/index.mjs",
-      "types": "./dist/index.d.mts"
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
     },
     "./rollup": {
-      "import": "./dist/rollup.mjs",
-      "types": "./dist/rollup.d.mts"
+      "types": "./dist/rollup.d.mts",
+      "import": "./dist/rollup.mjs"
     },
     "./rolldown": {
-      "import": "./dist/rolldown.mjs",
-      "types": "./dist/rolldown.d.mts"
+      "types": "./dist/rolldown.d.mts",
+      "import": "./dist/rolldown.mjs"
     },
     "./server": {
       "types": "./server.d.ts"
@@ -50,6 +50,9 @@
     "./worker": {
       "types": "./worker.d.ts"
     },
+    "./types": {
+      "types": "./types.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -57,17 +60,18 @@
     "server.d.ts",
     "THIRD_PARTY_NOTICES.md",
     "ws.d.ts",
-    "worker.d.ts"
+    "worker.d.ts",
+    "types.d.ts"
   ],
   "scripts": {
-    "build": "tsdown && cp server.d.ts dist/server.d.ts && cp ws.d.ts dist/ws.d.ts && cp worker.d.ts dist/worker.d.ts",
+    "build": "tsdown && cp server.d.ts dist/server.d.ts && cp ws.d.ts dist/ws.d.ts && cp worker.d.ts dist/worker.d.ts && cp types.d.ts dist/types.d.ts",
     "build:watch": "tsdown --watch",
-    "check": "bun run typecheck && bun run test && bun run build",
+    "check": "bun run typecheck && bun run test:types && bun run test && bun run build",
     "dev": "tsdown --watch",
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:coverage": "vitest --run --coverage",
-    "test:types": "vitest typecheck --run",
+    "test:types": "tsc --project tsconfig.type-tests.json",
     "typecheck": "tsc --noEmit",
     "release": "bumpp",
     "prepare": "bun run build",

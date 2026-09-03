@@ -1,16 +1,13 @@
 # Macro reference
 
-All macros are ambient compile-time globals. Add the package declaration
-subpaths to `tsconfig.json`, then call the macros directly in source files.
+All macros are ambient compile-time globals. Add the package's unified
+declaration entrypoint to `tsconfig.json`, then call the macros directly in
+source files.
 
 ```json
 {
   "compilerOptions": {
-    "types": [
-      "vite-plugin-server-sugar/server",
-      "vite-plugin-server-sugar/ws",
-      "vite-plugin-server-sugar/worker"
-    ]
+    "types": ["vite-plugin-server-sugar/types"]
   }
 }
 ```
@@ -37,9 +34,9 @@ await renameUser("u_123", "Ada");
 Signature:
 
 ```ts
-declare function $server<Args extends unknown[], R>(
-  fn: (...args: Args) => R | Promise<R>,
-): (...args: Args) => Promise<Awaited<R>>;
+declare function $server<Args extends unknown[], Return>(
+  fn: (...args: Args) => Return,
+): ServerFunction<Args, Return>;
 ```
 
 Arguments and return values should be JSON-serializable unless the handler
@@ -115,6 +112,23 @@ export const getTodo = $get(
 );
 
 await getTodo({ id: "42" });
+```
+
+Named interfaces and optional string fields are supported without adding an
+index signature:
+
+```ts
+interface SearchQuery {
+  q: string;
+  cursor?: string;
+}
+
+export const search = $get(
+  async (c: ServerContext<never, SearchQuery>) => ({
+    q: c.req.query("q"),             // string
+    cursor: c.req.query("cursor"),   // string | undefined
+  }),
+);
 ```
 
 Untyped query objects are optional:
@@ -221,9 +235,22 @@ await counterWorker.reset();
 Signature:
 
 ```ts
-declare function $worker<T extends Record<string, (...args: any[]) => any>>(
-  factory: () => T | Promise<T>,
-): { [K in keyof T]: (...args: Parameters<T[K]>) => Promise<Awaited<ReturnType<T[K]>>> };
+declare function $worker<T extends WorkerMethods<T>>(
+  factory: () => T | PromiseLike<T>,
+): WorkerClient<T>;
+```
+
+For explicit annotations and library wrappers, the unified declaration entry
+exports the same reusable types used by the ambient macros:
+
+```ts
+import type {
+  ServerContext,
+  ServerFunction,
+  ServerWs,
+  WorkerClient,
+  WsEndpoint,
+} from "vite-plugin-server-sugar/types";
 ```
 
 All returned methods share one worker thread and one closure, so state inside

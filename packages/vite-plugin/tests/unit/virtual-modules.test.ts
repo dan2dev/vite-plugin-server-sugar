@@ -7,11 +7,13 @@ import {
 } from '../../src/dev-server/virtual-modules';
 import {
   RESOLVED_CLIENT_HELPER_ID,
+  RESOLVED_CLIENT_HTTP_HELPER_ID,
   RESOLVED_CLIENT_WS_HELPER_ID,
   RESOLVED_FILE_PREFIX,
   RESOLVED_PREFIX,
   RESOLVED_WS_PREFIX,
   CLIENT_FETCH_EXPORT,
+  CLIENT_HTTP_FETCH_EXPORT,
   CLIENT_WS_CONNECT_EXPORT,
 } from '../../src/constants';
 import { serverConstName, wsConstName } from '../../src/utils/crypto';
@@ -76,6 +78,20 @@ describe('Virtual Module Loader', () => {
       const result = loadVirtualModule(RESOLVED_CLIENT_HELPER_ID, registry);
 
       expect(result!.map).toBeNull();
+    });
+  });
+
+  describe('client HTTP fetch helper module', () => {
+    it('omits undefined optional query fields', () => {
+      const registry = new Registry<ServerEntry>();
+      const result = loadVirtualModule(RESOLVED_CLIENT_HTTP_HELPER_ID, registry);
+
+      expect(result).not.toBeUndefined();
+      expect(result!.code).toContain(
+        `export async function ${CLIENT_HTTP_FETCH_EXPORT}(`,
+      );
+      expect(result!.code).toContain('if (__value !== undefined)');
+      expect(result!.code).toContain('__params.set(__key, __value)');
     });
   });
 

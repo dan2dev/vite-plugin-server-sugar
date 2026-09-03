@@ -128,17 +128,28 @@ Register the macro types in `tsconfig.json`:
 ```json
 {
   "compilerOptions": {
-    "types": [
-      "vite-plugin-server-sugar/server",
-      "vite-plugin-server-sugar/ws",
-      "vite-plugin-server-sugar/worker"
-    ]
+    "types": ["vite-plugin-server-sugar/types"]
   }
 }
 ```
 
 The macros are ambient compile-time globals. Do not import `$server`, `$ws`,
 `$worker`, or the HTTP method helpers from the package.
+
+Reusable helper types are also available as named type-only exports:
+
+```ts
+import type {
+  ServerContext,
+  ServerFunction,
+  ServerWs,
+  WorkerClient,
+  WsEndpoint,
+} from "vite-plugin-server-sugar/types";
+```
+
+The existing `/server`, `/ws`, and `/worker` type subpaths remain available
+when a project only wants one macro family.
 
 ## Server Functions
 

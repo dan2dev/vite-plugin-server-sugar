@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom"],
+    "types": ["node", "bun-types", "vitest"],
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true
+  },
+  "include": [
+    "server.d.ts",
+    "ws.d.ts",
+    "worker.d.ts",
+    "types.d.ts",
+    "tests/types/**/*.type-test.ts"
+  ]
+}

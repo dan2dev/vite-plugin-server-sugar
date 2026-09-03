@@ -1,5 +1,9 @@
 /// <reference path="../../ws.d.ts" />
 import { describe, it, expectTypeOf } from 'vitest';
+import type {
+  ServerWs as ImportedServerWs,
+  WsEndpoint,
+} from '../../ws';
 
 /**
  * Type tests for ws type inference.
@@ -85,6 +89,31 @@ describe('ws type inference', () => {
     expectTypeOf(room.connect).parameters.toEqualTypeOf<ConnectArgs>();
   });
 
+  it('exposes an importable endpoint type and a finite readyState union', () => {
+    interface ClientMessage {
+      text: string;
+    }
+    interface ServerMessage {
+      accepted: boolean;
+    }
+
+    const endpoint = $ws<ClientMessage, ServerMessage, [token: string]>({
+      onMessage(ws, message) {
+        ws.send({ accepted: message.text.length > 0 });
+      },
+    });
+
+    expectTypeOf(endpoint).toEqualTypeOf<
+      WsEndpoint<ClientMessage, ServerMessage, [token: string]>
+    >();
+    expectTypeOf<ImportedServerWs<ServerMessage>>().toEqualTypeOf<
+      ServerWs<ServerMessage>
+    >();
+
+    const connection = endpoint.connect('secret');
+    expectTypeOf(connection.readyState).toEqualTypeOf<0 | 1 | 2 | 3>();
+  });
+
   it('WsHandlers only accepts objects with onOpen/onMessage/onClose keys', () => {
     // Requirement 10.7: WsHandlers interface only accepts objects
     // with onOpen, onMessage, or onClose method keys
@@ -106,18 +135,18 @@ describe('ws type inference', () => {
       onClose(ws: ServerWs) {},
     });
 
-    // @ts-expect-error - invalid handler key 'onError' should not be accepted
     $ws({
+      // @ts-expect-error - invalid handler key 'onError' should not be accepted
       onError(ws: ServerWs) {},
     });
 
-    // @ts-expect-error - invalid handler key 'onConnect' should not be accepted
     $ws({
+      // @ts-expect-error - invalid handler key 'onConnect' should not be accepted
       onConnect(ws: ServerWs) {},
     });
 
-    // @ts-expect-error - invalid handler key 'message' should not be accepted
     $ws({
+      // @ts-expect-error - invalid handler key 'message' should not be accepted
       message(ws: ServerWs, data: unknown) {},
     });
   });
