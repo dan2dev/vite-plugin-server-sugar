@@ -1,7 +1,7 @@
 {
   "name": "vite-plugin-server-sugar",
   "version": "0.1.2",
-  "description": "Vite-first plugin that turns $server() calls into type-safe API endpoints bundled with Bun, with build-only Rollup and Rolldown entrypoints.",
+  "description": "Vite-first plugin that turns $server() calls into type-safe API endpoints, bundled with Bun or deployed as Cloudflare Workers, with build-only Rollup and Rolldown entrypoints.",
   "$schema": "https://raw.githubusercontent.com/vitejs/vite-plugin-registry/refs/heads/main/data/schema/extended-package-json.schema.json",
   "author": "Danilo Castro <duocraft.tech@gmail.com>",
   "license": "MIT",
@@ -16,7 +16,9 @@
     "bun",
     "server-functions",
     "server",
-    "fullstack"
+    "fullstack",
+    "cloudflare-workers",
+    "wrangler"
   ],
   "homepage": "https://github.com/dan2dev/vite-plugin-server-sugar#readme",
   "repository": {

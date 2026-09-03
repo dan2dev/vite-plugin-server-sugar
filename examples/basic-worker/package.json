@@ -1,0 +1,22 @@
+{
+  "name": "basic-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite build && wrangler dev --config dist/server/wrangler.toml",
+    "deploy": "vite build && wrangler deploy --config dist/server/wrangler.toml"
+  },
+  "dependencies": {
+    "hono": "^4.12.30"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "~6.0.3",
+    "vite": "^8.1.4",
+    "vite-plugin-server-sugar": "../../packages/vite-plugin",
+    "wrangler": "^4.128.0"
+  }
+}

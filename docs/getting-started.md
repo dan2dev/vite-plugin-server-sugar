@@ -174,3 +174,33 @@ export default app;
 
 The entry module must export a Hono-compatible app as the default export or as a
 named `app` export.
+
+## Deploy to Cloudflare Workers instead
+
+Everything above uses the default `platform: "hono"` (Bun) output. To deploy
+to Cloudflare Workers instead, set `platform: "cloudflare-worker"`:
+
+```ts
+serverBuildPlugin({
+  platform: "cloudflare-worker",
+});
+```
+
+This generates Cloudflare Workers-compatible modules and a `wrangler.toml`
+instead of a Bun server — including, optionally, an independent Worker per
+`$server()`/HTTP endpoint.
+
+Build, then deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+
+```bash
+npm install -D wrangler
+npx wrangler login       # once per machine; skip in CI, use an API token instead
+vite build
+npx wrangler deploy --config dist/server/wrangler.toml
+```
+
+The first deploy prints your app's `*.workers.dev` URL. See
+[Runtime and deployment](./runtime-and-deployment.md#deployment-checklist)
+for the full deployment checklist — CI/CD, secrets, bindings, custom
+domains — plus the output layout and constraints (`$ws()` and `compile` are
+not supported on this platform).

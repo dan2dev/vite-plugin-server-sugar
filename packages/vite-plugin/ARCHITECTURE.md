@@ -28,10 +28,15 @@ Client output:
 
 Server and worker output:
 
-- Server and HTTP handlers are emitted into the generated Bun + Hono server.
+- Server and HTTP handlers are emitted into the generated production server:
+  a Bun + Hono server by default (`platform: "hono"`), or one or more
+  Cloudflare Worker modules (`platform: "cloudflare-worker"`) — see
+  [Production Build](#production-build).
 - WebSocket handlers are emitted into the generated server and wired to Bun
-  WebSocket upgrades in production.
-- Worker factories are emitted as worker chunks and run once per worker thread.
+  WebSocket upgrades in production. Not supported on `platform:
+  "cloudflare-worker"`.
+- Worker factories (`$worker()`, unrelated to the `platform` option above)
+  are emitted as worker chunks and run once per browser worker thread.
 
 ## Source Map
 
@@ -53,8 +58,12 @@ src/
     hmr.ts                     virtual module invalidation
     ws-upgrade.ts              dev WebSocket upgrade handling
   build/
-    bundle-generator.ts        generated production server source
-    bundler.ts                 rolldown bundling and Bun compilation
+    platform.ts                 `platform` option validation
+    handler-emitter.ts          shared codegen: imports, handler decls, RPC dispatch
+    bundle-generator.ts         generated Bun + Hono production server source
+    cloudflare-bundle-generator.ts  generated Cloudflare Worker module(s)
+    wrangler-config.ts          generated `wrangler.toml` content
+    bundler.ts                  rolldown bundling and Bun compilation
   utils/
     ast.ts                     AST reference and label helpers
     crypto.ts                  stable endpoint and const-name helpers
@@ -211,14 +220,17 @@ The generated worker module:
 ## Production Build
 
 Production generation happens in `writeBundle`, after the client build is
-written.
+written. `options.platform` (validated up front by
+[`build/platform.ts`](./src/build/platform.ts)) selects one of two,
+mutually exclusive code paths.
 
-Steps:
+### `platform: "hono"` (default)
 
 1. Clean stale top-level files in `dist`, keeping `dist/client` and
    `dist/server`.
 2. Remove the previous server output directory.
-3. Generate one Bun + Hono server source string.
+3. Generate one Bun + Hono server source string
+   ([`build/bundle-generator.ts`](./src/build/bundle-generator.ts)).
 4. Bundle that source with rolldown into `dist/server/server.mjs`.
 5. If `compile: true`, compile standalone Bun executables for supported
    targets.
@@ -231,6 +243,38 @@ The generated server:
 - serves static files from `dist/client`,
 - falls back to `index.html` for SPA routes,
 - reads `PORT` from the environment and falls back to the configured `port`.
+
+### `platform: "cloudflare-worker"`
+
+Handled by `writeCloudflareOutput` in `plugin.ts`, using
+[`build/cloudflare-bundle-generator.ts`](./src/build/cloudflare-bundle-generator.ts)
+and [`build/wrangler-config.ts`](./src/build/wrangler-config.ts):
+
+1. Generate the combined Worker source (every endpoint, plus the
+   `serverEntry` app if configured) and bundle it into
+   `dist/server/worker.mjs`, alongside a generated `dist/server/wrangler.toml`.
+2. Unless `serverEntry` is configured, generate one independent Worker module
+   per endpoint — or per group of same-file endpoints that share
+   module-level state or reference each other by name, since that state
+   cannot span separate Worker deployments — under
+   `dist/server/functions/<slug>/index.mjs`, each with its own
+   `wrangler.toml`.
+
+Both generators share the platform-agnostic parts of codegen — import
+aliasing, per-file handler declarations, the `__serverHandlers` lookup table,
+and the RPC dispatch route — via
+[`build/handler-emitter.ts`](./src/build/handler-emitter.ts), so the request
+contract (methods, status codes, JSON body handling) stays identical across
+platforms. The Cloudflare output never emits static-file-serving code or a
+`serve()` call: static assets are served by Cloudflare's own asset system
+(configured in the generated `wrangler.toml`), and a Worker module just
+exports `app` as its `fetch`-compatible default.
+
+`$ws()` is rejected for this platform (with a descriptive build error): the
+existing broadcast implementation relies on an in-memory `Map`, which is not
+safe across Cloudflare's stateless, recyclable isolates without Durable
+Objects. `compile` is rejected too, since it only makes sense for the Bun
+output.
 
 ## Runtime Contracts
 
@@ -254,12 +298,17 @@ WebSocket endpoints:
 - Wrapper sends are JSON-serialized.
 - Incoming messages are JSON-parsed when possible.
 
-Production runtime:
+Production runtime (`platform: "hono"`):
 
 - The generated server uses `Bun.serve`, `Bun.file`, and `Bun.env`.
 - The output is ESM but is intended to run with Bun, not plain Node.
 - Projects using Bun-only handler imports should run Vite dev/build through
   Bun too.
+
+Production runtime (`platform: "cloudflare-worker"`): no Bun/Node-specific
+APIs are used by the generated code itself; handler bodies that reference
+Bun/Node APIs are the deploying project's responsibility, same as they are
+for `serverEntry` today. See [Production Build](#production-build) above.
 
 ## Build-Only Hosts
 

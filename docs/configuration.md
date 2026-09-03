@@ -15,6 +15,7 @@ export default defineConfig({
       serverEntry: "src/server.ts",
       pathnameBase: "/server",
       compile: false,
+      platform: "hono",
     }),
   ],
 });
@@ -30,10 +31,11 @@ import serverBuildPlugin from "vite-plugin-server-sugar";
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `port` | `number` | `3001` | Dev-server port default and production fallback port. Production can override it with `PORT`. |
+| `port` | `number` | `3001` | Dev-server port default and production fallback port. Production can override it with `PORT`. Not used by `platform: "cloudflare-worker"`. |
 | `pathnameBase` | `string` | `"/__server-build"` | Base pathname for generated HTTP endpoints. WebSocket endpoints use the same base with `-ws` appended. |
 | `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono-compatible app as `default` or named `app`. |
-| `compile` | `boolean` | `false` | Compile standalone Bun executables for supported targets after writing `dist/server/server.mjs`. |
+| `compile` | `boolean` | `false` | Compile standalone Bun executables for supported targets after writing `dist/server/server.mjs`. Only valid with `platform: "hono"`. |
+| `platform` | `"hono" \| "cloudflare-worker"` | `"hono"` | Target runtime for the generated production server. See [`platform`](#platform). |
 
 ## `port`
 
@@ -133,6 +135,55 @@ The plugin attempts the supported Bun compile targets:
 
 Compilation requires either the Bun runtime API or the `bun` CLI on `PATH`.
 Disable `compile` if you only need `dist/server/server.mjs`.
+
+## `platform`
+
+Set `platform` to choose the production server target:
+
+```ts
+serverBuildPlugin({
+  platform: "cloudflare-worker",
+});
+```
+
+- `"hono"` (default): the historical Bun + Hono output described above
+  (`dist/server/server.mjs`, started with `Bun.serve`).
+- `"cloudflare-worker"`: generate Cloudflare Workers-compatible ES modules
+  instead. Build, then deploy with
+  [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+
+  ```bash
+  vite build
+  npx wrangler deploy --config dist/server/wrangler.toml
+  ```
+
+  See [Runtime and deployment](./runtime-and-deployment.md#deployment-checklist)
+  for the full deployment checklist (authentication, CI/CD, secrets,
+  bindings, custom domains) and output layout. In short:
+  - `dist/server/worker.mjs` + `dist/server/wrangler.toml`: one Worker
+    serving every `$server()`/HTTP endpoint (and your `serverEntry` app, if
+    configured). Static assets are served by Cloudflare's own asset system,
+    not bundled into the Worker.
+  - `dist/server/functions/<name>/` (`index.mjs` + `wrangler.toml`): each
+    `$server()`/HTTP endpoint emitted as its own independently deployable
+    Worker, so it can run and scale separately from the rest. Endpoints from
+    the same source file that share module-level state, or call each other
+    by name, are grouped into one Worker together since that state cannot
+    span separate deployments. These are skipped when `serverEntry` is
+    configured — see below.
+
+Constraints:
+
+- `$ws()` is not supported with `platform: "cloudflare-worker"`. Cloudflare
+  Workers needs Durable Objects to coordinate WebSocket connections across
+  isolates, which this plugin does not generate. Builds fail with a
+  descriptive error if any `$ws()` handlers are registered.
+- `compile` is only valid with `platform: "hono"`; combining it with
+  `platform: "cloudflare-worker"` throws at plugin setup time.
+- When `serverEntry` is configured, only the combined `worker.mjs` is
+  generated. Splitting endpoints into independent Workers would bypass your
+  app's own middleware/routes for those endpoints, so the plugin mounts
+  everything on your app instead, exactly like `platform: "hono"` does.
 
 ## TypeScript setup
 

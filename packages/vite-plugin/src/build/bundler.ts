@@ -8,7 +8,12 @@ import {
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { rolldown, type OutputAsset, type OutputChunk } from "rolldown";
+import {
+  rolldown,
+  type InputOptions,
+  type OutputAsset,
+  type OutputChunk,
+} from "rolldown";
 
 interface BunBuildApi {
   build(options: Bun.BuildConfig): Promise<Bun.BuildOutput>;
@@ -26,7 +31,6 @@ export const compileTargets = [
 ] satisfies Bun.Build.CompileTarget[];
 
 const serverSourceFileName = "server.mjs";
-const serverBundleEntryFileName = ".server-build-entry.mjs";
 const bunCompileArtifactPattern = /^\.[a-f0-9]+-\d+\.bun-build$/;
 const ansiEscapePattern = /\x1B\[[0-?]*[ -/]*[@-~]/g;
 const nodeBuiltinModules = new Set([
@@ -82,14 +86,24 @@ function isRuntimeExternal(id: string): boolean {
   return id.startsWith("bun:") || nodeBuiltinModules.has(id);
 }
 
+function isCloudflareRuntimeExternal(id: string): boolean {
+  // `cloudflare:*` are Workers runtime built-ins (e.g. `cloudflare:workers`,
+  // `cloudflare:sockets`). `node:*` stays external too, matching Cloudflare's
+  // own bundler: it's only usable with the `nodejs_compat` compatibility
+  // flag, which is the deploying user's choice, not something this plugin
+  // can (or should) silently assume.
+  return id.startsWith("cloudflare:") || id.startsWith("node:");
+}
+
 function isServerEntryFallbackLog(
   id: string | undefined,
   message: string,
+  entrypointFileName: string,
 ): boolean {
   const normalizedMessage = message.replace(ansiEscapePattern, "");
 
   return (
-    id?.endsWith(serverBundleEntryFileName) === true &&
+    id?.endsWith(entrypointFileName) === true &&
     /^\[IMPORT_IS_UNDEFINED\] Import `(default|app)` will always be undefined\b/.test(
       normalizedMessage,
     )
@@ -116,20 +130,27 @@ function stripRolldownSectionComments(code: string): string {
     .join("\n");
 }
 
-/**
- * Bundle the generated production server source into a single distributable
- * module. Local source files and npm dependencies are inlined; Bun and Node
- * built-ins remain external runtime imports.
- */
-export async function bundleServerSource(
-  source: string,
-  serverOutDir: string,
-  root = process.cwd(),
-): Promise<string> {
-  mkdirSync(serverOutDir, { recursive: true });
+type ModuleBundleOptions = Pick<InputOptions, "platform" | "resolve" | "external">;
 
-  const entrypoint = join(serverOutDir, serverBundleEntryFileName);
-  const outfile = join(serverOutDir, serverSourceFileName);
+/**
+ * Shared rolldown invocation for every generated-module bundler below:
+ * writes `source` to a temporary entry file inside `outDir`, bundles it, and
+ * writes the single resulting chunk to `outDir/outFileName`. The temp entry
+ * name is derived from `outFileName` so bundling several outputs into the
+ * same directory (e.g. one Worker per endpoint) can't collide.
+ */
+async function bundleModuleSource(
+  source: string,
+  outDir: string,
+  outFileName: string,
+  root: string,
+  options: ModuleBundleOptions,
+): Promise<string> {
+  mkdirSync(outDir, { recursive: true });
+
+  const entrypointFileName = `.${outFileName}.entry.mjs`;
+  const entrypoint = join(outDir, entrypointFileName);
+  const outfile = join(outDir, outFileName);
   writeFileSync(entrypoint, source, "utf-8");
 
   let bundle: Awaited<ReturnType<typeof rolldown>> | null = null;
@@ -138,12 +159,15 @@ export async function bundleServerSource(
     bundle = await rolldown({
       input: entrypoint,
       cwd: root,
-      platform: "node",
-      external: (id) => isRuntimeExternal(id),
+      ...options,
       onLog(level, log, defaultHandler) {
         if (
           log.code === "IMPORT_IS_UNDEFINED" &&
-          isServerEntryFallbackLog(log.id ?? log.loc?.file, log.message)
+          isServerEntryFallbackLog(
+            log.id ?? log.loc?.file,
+            log.message,
+            entrypointFileName,
+          )
         ) {
           return;
         }
@@ -165,6 +189,45 @@ export async function bundleServerSource(
     if (bundle) await bundle.close();
     rmSync(entrypoint, { force: true });
   }
+}
+
+/**
+ * Bundle the generated production server source into a single distributable
+ * module. Local source files and npm dependencies are inlined; Bun and Node
+ * built-ins remain external runtime imports.
+ */
+export async function bundleServerSource(
+  source: string,
+  serverOutDir: string,
+  root = process.cwd(),
+): Promise<string> {
+  return bundleModuleSource(source, serverOutDir, serverSourceFileName, root, {
+    platform: "node",
+    external: (id) => isRuntimeExternal(id),
+  });
+}
+
+/**
+ * Bundle a generated Cloudflare Worker module into a single distributable
+ * file. Local source files and npm dependencies are inlined; `node:` and
+ * `cloudflare:` built-ins remain external runtime imports. Resolution
+ * prefers the `workerd`/`worker` package.json export conditions Cloudflare's
+ * own tooling uses, falling back to `browser` then `default`.
+ */
+export async function bundleCloudflareWorkerSource(
+  source: string,
+  outDir: string,
+  outFileName: string,
+  root = process.cwd(),
+): Promise<string> {
+  return bundleModuleSource(source, outDir, outFileName, root, {
+    platform: "neutral",
+    resolve: {
+      conditionNames: ["workerd", "worker", "import", "browser", "default"],
+      mainFields: ["browser", "module", "main"],
+    },
+    external: (id) => isCloudflareRuntimeExternal(id),
+  });
 }
 
 /**

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import type { OutputOptions } from "rolldown";
 
@@ -25,7 +25,11 @@ import {
 } from "./dev-server/virtual-modules";
 import { setupWsUpgrade } from "./dev-server/ws-upgrade";
 import { generateBundleContent } from "./build/bundle-generator";
-import { bundleServerSource, compileServer } from "./build/bundler";
+import {
+  bundleCloudflareWorkerSource,
+  bundleServerSource,
+  compileServer,
+} from "./build/bundler";
 import {
   RESOLVED_CLIENT_HELPER_ID,
   RESOLVED_CLIENT_HTTP_HELPER_ID,
@@ -40,6 +44,18 @@ import {
 } from "./constants";
 import { createEndpointPaths } from "./endpoint-paths";
 import { normalizePath } from "./utils/path";
+import { resolvePlatform } from "./build/platform";
+import {
+  generateCloudflareFunctionBundles,
+  generateCloudflareWorkerBundle,
+} from "./build/cloudflare-bundle-generator";
+import {
+  generateAggregateWranglerConfig,
+  generateFunctionWranglerConfig,
+  resolveProjectName,
+  todayCompatibilityDate,
+  workerName,
+} from "./build/wrangler-config";
 
 export type ServerBuildPluginHost = "vite" | "rollup" | "rolldown";
 
@@ -76,6 +92,7 @@ export function createServerBuildPlugin(
   options: ServerBuildPluginOptions = {},
   host: ServerBuildPluginHost = "vite",
 ): UniversalPlugin {
+  const platform = resolvePlatform(options);
   const port = options.port ?? 3001;
   const serverEntry = options.serverEntry;
   const compile = options.compile === true;
@@ -145,6 +162,85 @@ export function createServerBuildPlugin(
           endpointPaths,
         });
       }
+    }
+  }
+
+  /**
+   * Writes the `platform: "cloudflare-worker"` production output: a combined
+   * Worker serving every endpoint (plus its `wrangler.toml`), and — unless
+   * `serverEntry` is configured — one independent Worker per endpoint (or
+   * per group of endpoints that share module-level state) under
+   * `dist/server/functions/<slug>/`.
+   */
+  async function writeCloudflareOutput(): Promise<void> {
+    const worker = generateCloudflareWorkerBundle(
+      registry,
+      serverEntry,
+      serverEntryPath,
+      serverOutDir,
+      wsRegistry,
+      endpointPaths,
+    );
+    if (!worker) return;
+
+    const projectName = resolveProjectName(root);
+    const compatibilityDate = todayCompatibilityDate();
+
+    const workerOutfile = await bundleCloudflareWorkerSource(
+      worker,
+      serverOutDir,
+      "worker.mjs",
+      root,
+    );
+    const assetsDirectory = normalizePath(relative(serverOutDir, clientOutDir));
+    writeFileSync(
+      join(serverOutDir, "wrangler.toml"),
+      generateAggregateWranglerConfig({
+        name: workerName(projectName),
+        main: "worker.mjs",
+        assetsDirectory,
+        apiPrefix: endpointPaths.apiPrefix,
+        compatibilityDate,
+      }),
+      "utf-8",
+    );
+    console.log(
+      `[server-build] Wrote Cloudflare Worker to ${normalizePath(relative(root, workerOutfile))}.`,
+    );
+
+    if (serverEntry && registry.size > 0) {
+      console.log(
+        "[server-build] Skipping independent per-function Workers because serverEntry is configured; " +
+          "all endpoints are mounted on the custom app in dist/server/worker.mjs instead.",
+      );
+    }
+
+    const functions = generateCloudflareFunctionBundles(
+      registry,
+      serverEntry,
+      serverOutDir,
+      wsRegistry,
+      endpointPaths,
+    );
+
+    for (const fn of functions) {
+      const fnDir = join(serverOutDir, "functions", fn.slug);
+      await bundleCloudflareWorkerSource(fn.source, fnDir, "index.mjs", root);
+      writeFileSync(
+        join(fnDir, "wrangler.toml"),
+        generateFunctionWranglerConfig({
+          name: workerName(projectName, fn.slug),
+          main: "index.mjs",
+          compatibilityDate,
+        }),
+        "utf-8",
+      );
+    }
+
+    if (functions.length > 0) {
+      console.log(
+        `[server-build] Wrote ${functions.length} independent Cloudflare Worker function${functions.length === 1 ? "" : "s"} to ${normalizePath(relative(root, join(serverOutDir, "functions")))}.`,
+      );
     }
   }
 
@@ -482,6 +578,11 @@ export function createServerBuildPlugin(
         cleanDistRoot();
       }
       rmSync(serverOutDir, { recursive: true, force: true });
+
+      if (platform === "cloudflare-worker") {
+        await writeCloudflareOutput();
+        return;
+      }
 
       const content = generateBundleContent(
         registry,

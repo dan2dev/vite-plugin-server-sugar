@@ -8,8 +8,9 @@
 client code in a Vite app.
 
 It recognizes compile-time macros such as `$server()` and `$ws()`, replaces
-them with browser-safe clients, and emits a production Bun + Hono server that
-runs the original server code.
+them with browser-safe clients, and emits a production server that runs the
+original server code — a Bun + Hono server by default, or Cloudflare Workers
+modules with `platform: "cloudflare-worker"`.
 
 ```ts
 // src/todos.ts
@@ -61,7 +62,9 @@ Types are inferred from the function or handler you pass to the macro.
 - Dedicated Web Workers with `$worker()`.
 - Optional custom Hono app through `serverEntry`.
 - Vite dev-server middleware, WebSocket upgrades, and HMR invalidation.
-- Production server generation for Bun.
+- Production server generation for Bun, or Cloudflare Workers via
+  `platform: "cloudflare-worker"` (including an independent Worker per
+  endpoint).
 - Build-only Rollup and Rolldown entrypoints.
 
 ## Install
@@ -74,8 +77,8 @@ npm install vite-plugin-server-sugar hono
 bun add vite-plugin-server-sugar hono
 ```
 
-`hono` is a peer dependency. The generated production server uses Bun runtime
-APIs, so run it with Bun:
+`hono` is a peer dependency. By default (`platform: "hono"`), the generated
+production server uses Bun runtime APIs, so run it with Bun:
 
 ```bash
 bun dist/server/server.mjs
@@ -88,6 +91,9 @@ Bun too:
 bunx --bun vite
 bunx --bun vite build
 ```
+
+Set `platform: "cloudflare-worker"` to deploy to Cloudflare Workers instead —
+see [Build Output](#build-output) below.
 
 The Vite integration expects Vite `>=6.0.0`. Rollup `>=4.0.0` and Rolldown
 `>=1.0.0` are supported for build-only usage through explicit subpaths.
@@ -343,14 +349,17 @@ the raw WebSocket upgrade.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `port` | `number` | `3001` | Dev-server port default and production fallback port. Production can override it with `PORT`. |
+| `port` | `number` | `3001` | Dev-server port default and production fallback port. Production can override it with `PORT`. Unused by `platform: "cloudflare-worker"`. |
+| `pathnameBase` | `string` | `"/__server-build"` | Base pathname for generated HTTP endpoints. WebSocket endpoints use the same base with `-ws` appended. |
 | `serverEntry` | `string` | none | Project-root-relative path to a module exporting a Hono app as `default` or named `app`. |
-| `compile` | `boolean` | `false` | Also compile standalone Bun executables for supported Bun targets after emitting `dist/server/server.mjs`. |
+| `compile` | `boolean` | `false` | Also compile standalone Bun executables for supported Bun targets after emitting `dist/server/server.mjs`. Only valid with `platform: "hono"`. |
+| `platform` | `"hono" \| "cloudflare-worker"` | `"hono"` | Target runtime for the generated production server. |
 
 ## Build Output
 
-With Vite, the plugin changes the client output directory to `dist/client` and
-writes the generated server to `dist/server/server.mjs`.
+With Vite, the plugin changes the client output directory to `dist/client` and,
+by default (`platform: "hono"`), writes the generated server to
+`dist/server/server.mjs`.
 
 ```txt
 dist/
@@ -369,6 +378,34 @@ bun dist/server/server.mjs
 
 When `compile: true`, standalone Bun executables are also emitted under
 `dist/server/`.
+
+### Cloudflare Workers (`platform: "cloudflare-worker"`)
+
+```ts
+serverBuildPlugin({
+  platform: "cloudflare-worker",
+});
+```
+
+Instead of a Bun server, this emits Cloudflare Workers-compatible ES modules:
+a combined `dist/server/worker.mjs` (+ `wrangler.toml`) serving every
+endpoint, and — unless `serverEntry` is configured — an independent Worker
+per endpoint (or per group of endpoints sharing module-level state) under
+`dist/server/functions/<name>/`, each deployable on its own. Static assets
+are served by Cloudflare's own asset system, not bundled into the Worker.
+`$ws()` and `compile` are not supported on this platform.
+
+Deploy with [Wrangler](https://developers.cloudflare.com/workers/wrangler/):
+
+```bash
+npx wrangler login       # once per machine; CI uses an API token instead
+npx wrangler deploy --config dist/server/wrangler.toml
+```
+
+See
+[Runtime and deployment](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/runtime-and-deployment.md#deployment-checklist)
+for the full deployment checklist (CI/CD, secrets, bindings, custom domains),
+output layout, and constraints.
 
 ## Endpoint Names
 
@@ -464,10 +501,15 @@ dev-server middleware or HMR.
 
 ## Examples
 
-The repository includes a Vite example app at
-[`examples/basic-pwa`](../../examples/basic-pwa). It covers `$server`, HTTP
-method helpers, `$ws`, `$worker`, custom Hono routes, shared state, and edge
-cases.
+The repository includes two Vite example apps:
+
+- [`examples/basic-pwa`](../../examples/basic-pwa) — the default
+  `platform: "hono"` output. Covers `$server`, HTTP method helpers, `$ws`,
+  `$worker`, custom Hono routes, shared state, and edge cases.
+- [`examples/basic-worker`](../../examples/basic-worker) —
+  `platform: "cloudflare-worker"`, previewed locally with `wrangler dev`
+  (`workerd`). Shows independent per-endpoint Workers alongside the combined
+  one.
 
 ## Development
 

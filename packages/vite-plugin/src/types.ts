@@ -101,6 +101,24 @@ export interface WorkerEntry {
   siblingWsStubs: Array<{ name: string; url: string }>;
 }
 
+/**
+ * Target runtime for the generated production server.
+ *
+ * - `"hono"`: generate a single Bun + Hono server (`dist/server/server.mjs`)
+ *   started with `Bun.serve`. This is the historical default.
+ * - `"cloudflare-worker"`: generate Cloudflare Workers-compatible ES modules
+ *   instead of a Bun server. Static assets are served by Cloudflare's own
+ *   asset system (configured through the generated `wrangler.toml`), not
+ *   bundled into the Worker script. Every `$server()`/HTTP-method endpoint
+ *   (grouped with same-file siblings that share module-level state) is also
+ *   emitted as an independently deployable Worker under
+ *   `dist/server/functions/<name>/`, alongside a combined
+ *   `dist/server/worker.mjs` that serves every endpoint from one Worker.
+ *   `$ws()` endpoints are not supported on this platform, and `compile` must
+ *   stay `false`.
+ */
+export type ServerBuildPlatform = "hono" | "cloudflare-worker";
+
 export interface ServerBuildPluginOptions {
   /** Port for the generated production Bun server. Default: 3001 */
   port?: number;
@@ -114,8 +132,14 @@ export interface ServerBuildPluginOptions {
   /**
    * Compile standalone Bun executables for every supported target. Default: false.
    * Requires either Bun runtime (`globalThis.Bun`) or `bun` available on PATH.
+   * Only valid when `platform` is `"hono"`.
    */
   compile?: boolean;
+  /**
+   * Target runtime for the generated production server. Default: "hono".
+   * See {@link ServerBuildPlatform}.
+   */
+  platform?: ServerBuildPlatform;
 }
 
 export interface FetchApp {

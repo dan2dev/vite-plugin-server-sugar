@@ -1,0 +1,181 @@
+# vite-plugin-server-sugar example: Cloudflare Workers
+
+A minimal Vite app that targets `platform: "cloudflare-worker"` instead of
+the default Bun + Hono server. See [`examples/basic-pwa`](../basic-pwa) for
+the full macro surface (`$ws()`, `$worker()`, a custom `serverEntry`) on the
+default platform. This example stays framework-free (no React) and skips
+`$ws()` — genuinely unsupported here, see [Constraints](#constraints) — to
+keep the focus on the Cloudflare output. It also skips `$worker()`, the
+dedicated-Web-Worker macro: that one still works fine with
+`platform: "cloudflare-worker"` (it's an unrelated, client-side-only
+feature), it's just left out here to avoid confusing "`$worker()`" with
+"Cloudflare Worker."
+
+```ts
+// vite.config.ts
+serverBuildPlugin({
+  platform: "cloudflare-worker",
+});
+```
+
+That's the only difference from a normal setup. `$server()` and the HTTP
+method macros (`$get`, `$post`, ...) work exactly the same as they do with
+`platform: "hono"` — same endpoint paths, same request/response contract.
+What changes is the production output: instead of one Bun server, the plugin
+emits Cloudflare Workers-compatible ES modules, deployed with
+[Wrangler](https://developers.cloudflare.com/workers/wrangler/) and served
+locally by `workerd` (the same runtime Cloudflare's edge uses).
+
+## Run
+
+Install dependencies:
+
+```bash
+npm install
+# or: bun install
+```
+
+Start the Vite dev server (unaffected by `platform` — dev mode is the same
+regardless of production target):
+
+```bash
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+This writes the client build to `dist/client` and, because of
+`platform: "cloudflare-worker"`, writes Cloudflare Worker output to
+`dist/server` instead of a Bun server:
+
+```txt
+dist/
+  client/
+    index.html
+    assets/
+  server/
+    worker.mjs             # combined Worker: every endpoint in this app
+    wrangler.toml
+    functions/
+      todos-.../            # listTodos, addTodo, toggleTodo, deleteTodo, todoCount
+        index.mjs            # (grouped: they all share the `todos` array)
+        wrangler.toml
+      counter-.../           # increment, resetCount, getCount
+        index.mjs            # (grouped: they all share the `count` variable)
+        wrangler.toml
+      health-get-health/
+        index.mjs            # getHealth (its own Worker: no shared state)
+        wrangler.toml
+      health-ping/
+        index.mjs            # ping (its own Worker: no shared state)
+        wrangler.toml
+```
+
+Nothing here is hand-written — the plugin generates every `wrangler.toml` and
+`.mjs` file. See [`src/todos.ts`](./src/todos.ts), [`src/counter.ts`](./src/counter.ts),
+and [`src/health.ts`](./src/health.ts) for why some handlers get grouped into
+one Worker and others don't: it comes down to whether they close over the
+same module-level state, not which file they happen to live in.
+
+The `functions/*-.../` directory names above are exactly what gets generated:
+grouped Workers name their directory by joining every endpoint they contain,
+then truncate to a short hash suffix once that join gets long (Cloudflare
+Worker names are capped at 63 characters) — run the build yourself and look
+under `dist/server/functions/` for the real names.
+
+## Preview with `workerd` locally
+
+```bash
+npm run preview
+```
+
+This builds the app, then runs `wrangler dev` against the generated
+`dist/server/wrangler.toml` — the combined Worker, serving every endpoint
+plus the client build, on `http://localhost:8787` via `workerd` (no
+Cloudflare account needed for local dev). Try:
+
+```bash
+curl http://localhost:8787/__server-build/todos/list-todos -X POST -H 'content-type: application/json' -d '[]'
+curl http://localhost:8787/__server-build/counter/increment -X POST -H 'content-type: application/json' -d '[]'
+curl http://localhost:8787/__server-build/health/ping
+```
+
+To preview one of the independent per-function Workers on its own instead
+(after `npm run build`), point `wrangler dev` at its config directly:
+
+```bash
+npx wrangler dev --config dist/server/functions/health-ping/wrangler.toml
+```
+
+That Worker only knows about `health/ping` — every other endpoint 404s from
+it, since it's a genuinely separate deployment with no access to the other
+Workers' code or state.
+
+## Deploy
+
+```bash
+npm run deploy
+```
+
+Runs `wrangler deploy` against the combined Worker (requires
+`wrangler login` first, or a `CLOUDFLARE_API_TOKEN`). To deploy an
+independent per-function Worker instead:
+
+```bash
+cd dist/server/functions/health-ping
+npx wrangler deploy
+```
+
+Independent Workers are deployed on their own — the plugin does not wire
+routing between them and the combined Worker's origin. Attach one to
+`/{pathnameBase}/<endpoint>` on the same domain with a
+[Cloudflare Route](https://developers.cloudflare.com/workers/configuration/routing/routes/)
+to keep this app's same-origin `fetch()` calls working unchanged.
+
+This example has no bindings or secrets to configure, but a real app usually
+does — `wrangler.toml` is regenerated by every `npm run build`, so anything
+you'd normally hand-write into it (KV/D1/R2 bindings, `[vars]`, a custom
+domain) needs to be re-added before each deploy, except secrets
+(`wrangler secret put NAME`), which persist on their own. See
+[Bindings, secrets, and custom domains](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/runtime-and-deployment.md#bindings-secrets-and-custom-domains)
+and the full
+[deployment checklist](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/runtime-and-deployment.md#deployment-checklist)
+(including a CI/CD example) for the details.
+
+## Constraints
+
+Two things that work with the default `platform: "hono"` do not work here,
+and the plugin fails the build with a clear error (or refuses to start) if
+you try:
+
+- **`$ws()`** — Cloudflare Workers needs Durable Objects to coordinate
+  WebSocket connections across isolates, which this plugin does not
+  generate.
+- **`compile: true`** — that option produces standalone Bun executables and
+  only makes sense for `platform: "hono"`.
+- **A custom `serverEntry` Hono app still works**, but disables independent
+  per-function Workers: every endpoint gets mounted on your app in the one
+  combined Worker instead, so your app's middleware keeps running for all of
+  them. This example leaves `serverEntry` unset specifically to show the
+  independent-Worker behavior.
+
+See
+[Runtime and deployment](https://github.com/dan2dev/vite-plugin-server-sugar/blob/main/docs/runtime-and-deployment.md#cloudflare-workers-output)
+for the full reference.
+
+## Files
+
+- [`src/todos.ts`](./src/todos.ts): `$server()` CRUD + `$get()`, all sharing
+  one in-memory array — grouped into one independent Worker.
+- [`src/counter.ts`](./src/counter.ts): a second, separate shared-state group
+  — its own independent Worker.
+- [`src/health.ts`](./src/health.ts): two handlers with no shared state —
+  each becomes its own independent Worker, even though they're in the same
+  file.
+- [`src/main.ts`](./src/main.ts): plain TypeScript UI calling all of the
+  above like normal async functions.
+- [`vite.config.ts`](./vite.config.ts): the one-line plugin config change.
